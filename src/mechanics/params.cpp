@@ -1,4 +1,11 @@
 #include <string>
+#include "../eigenIncludes.h"
+
+struct GeometryData {
+  const std::vector<Eigen::VectorXd> nodes;
+  const std::vector<std::vector<int>> edges;
+  const std::vector<std::vector<int>> face_nodes;
+};
 
 struct GeomParams {
     double rod_r0;

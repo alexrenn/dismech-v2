@@ -2,6 +2,7 @@
 #define GEOMETRY_H
 
 #include <Eigen/Dense>
+#include "params.cpp"
 #include <vector>
 #include <string>
 
@@ -9,42 +10,45 @@
 
 class Geometry {
 public:
-    Geometry(const Eigen::MatrixXd& nodes,
-             const Eigen::MatrixXi& edges,
-             const Eigen::MatrixXi& face_nodes);
-    Geometry(const std::vector<Eigen::MatrixXd>& params);
+    Geometry(const std::vector<Eigen::VectorXd>& nodes,
+             const std::vector<std::vector<int>>& edges,
+             const std::vector<std::vector<int>>& face_nodes);
+             
+    Geometry(GeometryData& params); // TODO RADHA
 
     static Geometry from_txt(const std::string& filename);
 
 
-    Eigen::MatrixXd getNodes() const { return nodes_; }
-    Eigen::MatrixXi getEdges() const { return edges_; }
-    Eigen::MatrixXi getRodEdges() const { return rod_edges_; }
-    Eigen::MatrixXi getShellEdges() const { return shell_edges_; }
-    Eigen::MatrixXi getRodShellJointEdges() const { return rod_shell_joint_edges_; }
-    Eigen::MatrixXi getRodShellJointEdgesTotal() const { return rod_shell_joint_edges_total_; }
-    Eigen::MatrixXi getFaceNodes() const { return face_nodes_; }
-    Eigen::MatrixXi getFaceEdges() const { return face_edges_; }
-    Eigen::MatrixXi getFaceShellEdges() const { return face_shell_edges_; }
-    Eigen::MatrixXi getRodStretchSprings() const { return rod_stretch_springs_; }
-    Eigen::MatrixXi getShellStretchSprings() const { return shell_stretch_springs_; }
-    Eigen::MatrixXi getBendTwistSprings() const { return bend_twist_springs_; }
-    Eigen::MatrixXi getBendTwistSigns() const { return bend_twist_signs_; }
-    Eigen::MatrixXi getHinges() const { return hinges_; }
-    Eigen::MatrixXi getSignFaces() const { return sign_faces_; }
-    Eigen::MatrixXd getFaceUnitNorms() const { return face_unit_norms_; }
-    Eigen::VectorXd getTwistAngles() const { return twist_angles_; }
+    std::vector<Eigen::VectorXd> getNodes() const { return nodes_; }
+    std::vector<std::array<int, 2>> getEdges() const { return edges_; }
+    std::vector<std::array<int, 2>> getRodEdges() const { return rod_edges_; }
+    std::vector<std::array<int, 2>> getShellEdges() const { return shell_edges_; }
+    std::vector<std::array<int, 2>> getRodShellJointEdges() const { return rod_shell_joint_edges_; }
+    std::vector<std::array<int, 2>> getRodShellJointEdgesTotal() const { return rod_shell_joint_edges_total_; }
+    std::vector<std::array<int, 3>> getFaceNodes() const { return face_nodes_; }
+    std::vector<std::array<int, 3>> getFaceEdges() const { return face_edges_; }
+    std::vector<std::array<int, 3>> getFaceShellEdges() const { return face_shell_edges_; }
+    std::vector<std::array<int, 2>> getRodStretchSprings() const { return rod_stretch_springs_; }
+    std::vector<std::array<int, 2>> getShellStretchSprings() const { return shell_stretch_springs_; }
+    std::vector<std::array<int. 5>> getBendTwistSprings() const { return bend_twist_springs_; }
+    std::vector<std::array<int, 2>> getBendTwistSigns() const { return bend_twist_signs_; }
+    std::vector<std::array<int, 4>> getHinges() const { return hinges_; }
+    std::vector<std::array<int, 3>> getSignFaces() const { return sign_faces_; }
+    std::vector<Eigen::VectorXd> getFaceUnitNorms() const { return face_unit_norms_; }
+    std::vector<double> getTwistAngles() const { return twist_angles_; }
 
 private:
-    Eigen::MatrixXd nodes_;
-    Eigen::MatrixXi edges_, rod_edges_, shell_edges_;
-    Eigen::MatrixXi rod_shell_joint_edges_, rod_shell_joint_edges_total_;
-    Eigen::MatrixXi face_nodes_, face_edges_, face_shell_edges_;
-    Eigen::MatrixXi rod_stretch_springs_, shell_stretch_springs_;
-    Eigen::MatrixXi bend_twist_springs_, bend_twist_signs_;
-    Eigen::MatrixXi hinges_, sign_faces_;
-    Eigen::MatrixXd face_unit_norms_;
-    Eigen::VectorXd twist_angles_;
+    std::vector<Eigen::VectorXd> nodes_; // double
+    std::vector<std::array<int, 2>> edges_, rod_edges_, shell_edges_; 
+    std::vector<std::array<int, 2>> rod_shell_joint_edges_, rod_shell_joint_edges_total_; 
+    std::vector<std::array<int, 3>>  face_nodes_, face_edges_, face_shell_edges_;
+    std::vector<std::array<int, 2>> rod_stretch_springs_, shell_stretch_springs_;
+    std::vector<std::array<int, 5>> bend_twist_springs_;
+    std::vector<std::vector<int, 2>> bend_twist_signs_;
+    std::vector<std::array<int, 4>> hinges_;
+    std::vector<std::array<int, 3>> sign_faces_;
+    std::vector<Eigen::VectorXd> face_unit_norms_; // double
+    std::vector<double> twist_angles_; //double
 
     int n_nodes, n_rod_edges, n_rod_shell_joints, n_faces;
     
