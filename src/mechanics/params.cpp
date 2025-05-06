@@ -2,9 +2,9 @@
 #include "../eigenIncludes.h"
 
 struct GeometryData {
-  const std::vector<Eigen::VectorXd> nodes;
-  const std::vector<std::vector<int>> edges;
-  const std::vector<std::vector<int>> face_nodes;
+  const std::vector<Eigen::Vector3d> nodes;
+  const std::vector<std::array<int, 2> > edges;
+  const std::vector<std::array<int, 3> > face_nodes;
 };
 
 struct GeomParams {

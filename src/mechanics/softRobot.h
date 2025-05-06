@@ -13,17 +13,17 @@ class SoftRobot {
         SoftRobot(const GeomParams& geom, const Material& material, const Geometry&geo,
         const SimParams& sim_params, const Environment& env, const RobotState& state);
 
-        void scale_mass_matrix(const Eigen::VectorXi& nodes, double scale);
+        void scale_mass_matrix(const std::vector<Eigen::Vector3d> & nodes, double scale);
         void _init_curvature_midedge(const Geometry& geo);
 
         std::shared_ptr<SoftRobot> update(
             std::optional<Eigen::VectorXd> q = std::nullopt,
             std::optional<Eigen::VectorXd> u = std::nullopt,
             std::optional<Eigen::VectorXd> a = std::nullopt,
-            std::optional<Eigen::VectorXd> a1 = std::nullopt,
-            std::optional<Eigen::VectorXd> a2 = std::nullopt,
-            std::optional<Eigen::VectorXd> m1 = std::nullopt,
-            std::optional<Eigen::VectorXd> m2 = std::nullopt,
+            std::optional std::vector<Eigen::VectorXd> = std::nullopt,
+            std::optional std::vector<Eigen::VectorXd> a2 = std::nullopt,
+            std::optional std::vector<Eigen::VectorXd> m1 = std::nullopt,
+            std::optional std::vector<Eigen::VectorXd> m2 = std::nullopt,
             std::optional<Eigen::VectorXd> ref_twist = std::nullopt,
             std::optional<Eigen::VectorXi> free_dof = std::nullopt
         ) const;
@@ -31,7 +31,7 @@ class SoftRobot {
         Eigen::MatrixXd _compute_tangent(const Eigen::VectorXd& q);
         
         std::shared_ptr<SoftRobot> _fix_dof(const Eigen::VectorXi& new_fixed_dof) const;
-        Eigen::VectorXi _get_intermediate_edge_dof(const Eigen::VectorXi& nodes) const;
+        Eigen::VectorXi _get_intermediate_edge_dof(const Eigen::Vector3d& nodes) const;
         
         // Utility Helpers
         Eigen::VectorXi setdiff1d(const Eigen::VectorXi& a, const Eigen::VectorXi& b);
@@ -62,69 +62,43 @@ class SoftRobot {
         }
 
         // Getter for end_node_dof_index (First edge DOF index after node DOFs)
-        int get_end_node_dof_index() const {
-            return 3 * n_nodes_;
-        }
+        int get_end_node_dof_index() const { return 3 * n_nodes_;}
 
         // Getter for q0 (Initial state vector)
-        const Eigen::VectorXd& get_q0() const {
-            return q0_;
-        }
+        const Eigen::VectorXd& get_q0() const { return q0_; }
 
         // Getter for state (Current state)
-        const RobotState& get_state() const {
-            return state_;
-        }
+        const RobotState& get_state() const { return state_; }
 
         // Getter for sim_params
-        const SimParams& get_sim_params() const {
-            return sim_params_;
-        }
+        const SimParams& get_sim_params() const { return sim_params_; }
 
         // Getter for env
-        const Environment& get_env() const {
-            return env_;
-        }
+        const Environment& get_env() const { return env_;}
 
         // Getter for n_dof (Total number of degrees of freedom)
-        int get_n_dof() const {
-            return n_dof_;
-        }
+        int get_n_dof() const { return n_dof_; }
 
         // Getter for bend_twist_springs (List of bend-twist spring elements)
-        const std::vector<BendTwistSpring>& get_bend_twist_springs() const {
-            return bend_twist_springs_;
-        }
+        const std::vector<BendTwistSpring>& get_bend_twist_springs() const { return bend_twist_springs_; }
 
         // Getter for stretch_springs (List of stretch spring elements)
-        const std::vector<StretchSpring>& get_stretch_springs() const {
-            return stretch_springs_;
-        }
+        const std::vector<StretchSpring>& get_stretch_springs() const { return stretch_springs_; }
 
         // Getter for hinge_springs (List of hinge spring elements)
-        const std::vector<HingeSpring>& get_hinge_springs() const {
-            return hinge_springs_;
-        }
+        const std::vector<HingeSpring>& get_hinge_springs() const { return hinge_springs_; }
 
         // Getter for triangle_springs (List of triangle spring elements)
-        const std::vector<TriangleSpring>& get_triangle_springs() const {
-            return triangle_springs_;
-        }
+        const std::vector<TriangleSpring>& get_triangle_springs() const { return triangle_springs_; }
 
         // Getter for nodes (n_nodes)
-        const Eigen::VectorXd& get_nodes() const {
-            return nodes_;
-        }
+        const Eigen::VectorXd& get_nodes() const { return nodes_; }
 
         // Getter for edges (n_edges, 2)
-        const Eigen::MatrixXi& get_edges() const {
-            return edges_;
-        }
+        const Eigen::MatrixXi& get_edges() const { return edges_; }
 
         // Getter for face_nodes_shell (n_faces, 3)
-        const Eigen::MatrixXi& get_face_nodes_shell() const {
-            return face_nodes_shell_;
-        }
+        const Eigen::MatrixXi& get_face_nodes_shell() const { return face_nodes_shell_; }
 
         // Getter for fixed_dof (indices of constrained degrees of freedom)
         Eigen::VectorXi get_fixed_dof() const {
@@ -142,11 +116,11 @@ class SoftRobot {
         }
 
          // Fix/free DOF operations
-        std::shared_ptr<SoftRobot> free_nodes(const std::vector<int>& nodes, std::optional<int> axis = std::nullopt, bool fix_edges = false) const;
-        std::shared_ptr<SoftRobot> fix_nodes(const std::vector<int>& nodes, std::optional<int> axis = std::nullopt, bool fix_edges = false) const;
+        std::shared_ptr<SoftRobot> free_nodes(const std::vector<Eigen::VectorXd>& nodes, std::optional<int> axis = std::nullopt, bool fix_edges = false) const;
+        std::shared_ptr<SoftRobot> fix_nodes(const sstd::vector<Eigen::VectorXd>& nodes, std::optional<int> axis = std::nullopt, bool fix_edges = false) const;
 
-        std::shared_ptr<SoftRobot> free_edges(const std::vector<int>& edges) const;
-        std::shared_ptr<SoftRobot> fix_edges(const std::vector<int>& edges) const;
+        std::shared_ptr<SoftRobot> free_edges(const std::vector<std::array<int, 2>>& edges) const;
+        std::shared_ptr<SoftRobot> fix_edges(const std::vector<std::array<int, 2>>& edges) const;
 
     private:
         // Parameters
@@ -157,31 +131,33 @@ class SoftRobot {
         int n_nodes, n_edges_rod_only, n_edges_shell_only;
         int n_edges_, n_edges_dof_, n_faces_;
 
-        // Eigen::VectorXd nodes_;
-        // Eigen::MatrixXi edges;
-        // Eigen::MatrixXi face_nodes_shell_;
-        // Eigen::VectorXd twist_angles_;
+        // types
+        std::vector<Eigen::VectorXd> nodes_;
+        std::vector<std::array<int, 2>> edges;
+        std::vector<std::array<int, 3>> face_nodes_shell_;
+        std::vector<double>  twist_angles_;
 
         int n_dof_;
         int n_edges_dof;
         std::vector<int> free_dof_;
         Eigen::VectorXd q0_;
-        Eigen::VectorXi fixed_dof;
-
+        std::vector<int> fixed_dof;
 
         // State
         RobotState state_;
 
-
         // Mid-edge data
-        Eigen::VectorXd tau0_;
-        Eigen::MatrixXd init_ts_, init_fs_, init_cs_, init_xis_;
+        std::vector<Eigen::VectorXd> tau0_; 
+        std::vector<Eigen::MatrixXd> init_ts_;
+        std::vector<std::vector<double>> init_fs_;
+        std::vector<std::vector<double>> init_cs_;
+        std::vector<std::vector<double>>  init_xis_;
 
-        Eigen::VectorXd ref_len;
-        Eigen::VectorXd voronoi_ref_len;
-        Eigen::VectorXd voronoi_area;
-        Eigen::VectorXd face_area;
-        Eigen::VectorXd mass_matrix;
+        std::vector<double> ref_len;
+        std::vector<double> voronoi_ref_len;
+        std::vector<double>  voronoi_area;
+        std::vector<double> face_area;
+        Eigen::MatrixXd mass_matrix;
 
         std::vector<BendTwistSpring> bend_twist_springs_;   // List of bend-twist springs
         std::vector<StretchSpring> stretch_springs_;         // List of stretch springs
@@ -200,12 +176,14 @@ class SoftRobot {
         void _get_voronoi_area() const;
         void _get_face_area() const;
 
-        std::tuple<Eigen::MatrixXd, Eigen::MatrixXd, Eigen::MatrixXd, Eigen::MatrixXd> init_curvature_midedge(const Geometry& geo);
+        std::tuple<Eigen::MatrixXd, Eigen::MatrixXd, Eigen::MatrixXd, Eigen::MatrixXd> init_curvature_midedge(const Geometry& geo); // TODO check
         Eigen::MatrixXd update_pre_comp_shell(const Eigen::MatrixXd& q);
-        std::tuple<Eigen::MatrixXd, Eigen::MatrixXd> compute_space_parallel();
-        std::tuple<Eigen::MatrixXd, Eigen::MatrixXd> compute_time_parallel();
-        std::pair<Eigen::MatrixXd, Eigen::MatrixXd> compute_material_directors();
-        Eigen::VectorXd compute_reference_twist();
+        std::tuple<Eigen::MatrixXd, Eigen::MatrixXd> compute_space_parallel(); // TODO check 
+        std::tuple<Eigen::MatrixXd, Eigen::MatrixXd> compute_time_parallel(); // TODO check
+        std::pair<Eigen::MatrixXd, Eigen::MatrixXd> compute_material_directors(); // TODO check
+        Eigen::VectorXd compute_reference_twist(); // TODO check
+
+        
 
 }
 

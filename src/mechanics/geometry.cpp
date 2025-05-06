@@ -6,10 +6,9 @@
 #include <array>
 #include <stdexcept>
 #include <iostream>
-#include <unordered_map>
 #include <filesystem>
-#include <Eigen/Dense>
-
+#include <unordered_set>
+#include "../eigenIncludes.h"
 
 Geometry::Geometry(const std::string& fname)
 {   
@@ -27,10 +26,10 @@ Geometry::Geometry(const std::string& fname)
     n_faces = face_nodes_.size();
 
     // Initialize shell-related arrays
-    n_edges = 3 * n_faces; // RADHA why?
-    std::vector<int> third_node(n_edges, 0); //n_edges elements, each initialized to zero
-    std::vector<std::array<int,2>> edge_faces;
-    std::vector<double> As(n_faces, 0.0); // n_faces entries, each initialized to 0.0
+    n_edges = 3 * n_faces; 
+    third_node_.resize(n_edges, 0);
+    As_.resize(n_faces, 0.0); // n_faces entries, each initialized to 0.0
+    face_unit_norms_.resize(n_faces, Eigen::Vector3d::Zero());
 
     // Calculate shell and hinge edges
     calculate_shell_and_hinge_edges(n_faces);
@@ -48,26 +47,25 @@ Geometry::Geometry(const std::string& fname)
 
     calculate_face_edges(face_nodes_);
 
-    find_edge_index(face_nodes);
     calculate_twist_angles();
 }
 
 void Geometry::calculate_shell_and_hinge_edges(int n_faces) {
     // Iterate over faces
     for (int i = 0; i < n_faces; ++i) {
-        int n1 = face_nodes_(i, 0);
-        int n2 = face_nodes_(i, 1);
-        int n3 = face_nodes_(i, 2);
+        int n1 = face_nodes_[i][0];
+        int n2 = face_nodes_[i][1];
+        int n3 = face_nodes_[i][2];
         
-        Eigen::VectorXd p1 = nodes_.row(n1);
-        Eigen::VectorXd p2 = nodes_.row(n2);
-        Eigen::VectorXd p3 = nodes_.row(n3);
+        Eigen::Vector3d p1 = nodes_[n1];
+        Eigen::Vector3d p2 = nodes_[n2];
+        Eigen::Vector3d p3 = nodes_[n3];
         
         // Calculate face normal and area (cross product and norm)
-        Eigen::VectorXd face_cross_prod = (p2 - p1).cross(p3 - p1);
+        Eigen::Vector3d face_cross_prod = (p2 - p1).cross(p3 - p1);
         double face_norm = face_cross_prod.norm();
-        As(i) = face_norm / 2;
-        face_unit_norms_.col(i) = face_cross_prod / face_norm;
+        As_[i] = face_norm / 2;
+        face_unit_norms_[i] = face_cross_prod / face_norm;
 
         // Iterate over edge pairs (permutations of edges)
         std::vector<std::array<int, 3>> permutations = {
@@ -121,7 +119,7 @@ void Geometry::calculate_shell_and_hinge_edges(int n_faces) {
                     sign_faces_[i][j] = -1;
                 }
 
-                edge_face [exist_id][1] = i;
+                edge_faces_[exist_id][1] = i;
                 ++h_i_;
             }
         }
@@ -129,14 +127,13 @@ void Geometry::calculate_shell_and_hinge_edges(int n_faces) {
 }
 
 void Geometry::trim_unused_values() {
-    shell_edges.resize(s_i, 2);
-    hinges.resize(h_i, 4);
+    shell_edges_.resize(s_i_); // Keep only the first s_i_ rows
+    hinges_.resize(h_i_); // Keep only the first h_i_ rows
 }
 
 void Geometry::calculate_ghost_edges(int n_rod_shell_joints, int n_faces) {
     // Ghost edges for rod-shell joint bent-twist springs
-    std::vector<std::array<int, 2>> ghost_rod_shell_joint_edges;
-    ghost_rod_shell_joint_edges.push_back({0, 0});
+    ghost_rod_shell_joint_edges_.push_back({0, 0});
 
 
     for (int i = 0; i < n_rod_shell_joints; ++i) {
@@ -156,7 +153,7 @@ void Geometry::calculate_ghost_edges(int n_rod_shell_joints, int n_faces) {
             std::array<int, 3> temp_edges = face_shell_edges_[s_faces[j]];
             for (int k = 0; k < 3; ++k) {
                 std::array<int, 2> edge = shell_edges_[temp_edges[k]];
-                if (std::find(ghost_rod_shell_joint_edges.begin(), ghost_rod_shell_joint_edges.end(), edge) == ghost_rod_shell_joint_edges.end()) {
+                if (std::find(ghost_rod_shell_joint_edges_.begin(), ghost_rod_shell_joint_edges_.end(), edge) == ghost_rod_shell_joint_edges_.end()) {
                     if (std::find(s_edges.begin(), s_edges.end(), temp_edges[k]) == s_edges.end()) {
                         s_edges.push_back(temp_edges[k]);
                     }
@@ -166,13 +163,13 @@ void Geometry::calculate_ghost_edges(int n_rod_shell_joints, int n_faces) {
 
         // Add the new edges to the ghost edges list
         for (int s : s_edges) {
-            ghost_rod_shell_joint_edges.push_back(shell_edges_[s]);
+            ghost_rod_shell_joint_edges_.push_back(shell_edges_[s]);
         }
     }
 }
 
 void Geometry::calculate_bend_twist_springs(int n_nodes) {
-    // Remove jugaad and concatenate rod_shell_joint_edges
+    // Remove jugaad and concatenate rod_shell_joint_edges_
     std::vector<std::array<int, 2>> rod_shell_joint_edges_total = rod_shell_joint_edges_;
     // Appends a range of elements ([begin()+1, end())) from ghost_rod_shell_joint_edges_ into rod_shell_joint_edges_total.
     rod_shell_joint_edges_total.insert(
@@ -239,7 +236,7 @@ void Geometry::calculate_bend_twist_springs(int n_nodes) {
                 int node2 = i;
                 int node3 = rod_edges_modified[edge_pair[1]][n2];
 
-                bend_twist_springs_.push_back({node1, edge_pair.first, node2, edge_pair.second, node3});
+                bend_twist_springs_.push_back({node1, edge_pair[0], node2, edge_pair[1], node3});
                 bend_twist_signs_.push_back({s1, s2});
 
             }    
@@ -270,10 +267,10 @@ std::vector<std::array<int, 2>> Geometry::get_combinations_outof_into(const std:
     return combinations;
 }
 
-void Geometry::sequence_edges(int n_faces, std::vector<std::array<int, 3>> face_nodes) {
+void Geometry::sequence_edges(int n_faces, std::vector<std::array<int, 3>>& face_nodes_) {
     // Sequence edges by concatenating rod edges with rod shell joint edges
     edges_ = rod_edges_;
-    edges_ = insert(edges_.end(), rod_shell_joint_edges_total_.begin(), rod_shell_joint_edges_total_.end());
+    edges_.insert(edges_.end(), rod_shell_joint_edges_total_.begin(), rod_shell_joint_edges_total_.end());
 
     // Only add unique shell_edges
     if (!edges_.empty()) {
@@ -284,18 +281,13 @@ void Geometry::sequence_edges(int n_faces, std::vector<std::array<int, 3>> face_
                     exists = true;
                     break;
                 }
-                // RADHA do I include these reversed edges?
-                // if (edge[0] == shell_edge[1] && edge[1] && shell_edge[0]) {
-                //     exists = true;
-                //     break;
-                // }
             }
             if (!exists) {
                 edges_.push_back(shell_edge);
+            } else {
+                edges_ = shell_edges_;
             }
-        } else {
-            edges_ = shell_edges_;
-        }
+        } 
     }
     // Extract shell_edges_ slice from edges_
     int n_rod_edges = static_cast<int>(rod_edges_.size());
@@ -315,12 +307,12 @@ void Geometry::create_stretch_springs() {
     shell_stretch_springs_ = shell_edges_;
 }
 
-void Geometry::calculate_face_edges(std::vector<std::array<int, 3>>& face_nodes) {
+void Geometry::calculate_face_edges(std::vector<std::array<int, 3>>& face_nodes_) {
     // Calculate face edges
-    for (int i = 0; i < n_faces_; ++i) {
-        int n1 = face_nodes[i][0];
-        int n2 = face_nodes[i][1];
-        int n3 = face_nodes[i][2];
+    for (int i = 0; i < n_faces; ++i) {
+        int n1 = face_nodes_[i][0];
+        int n2 = face_nodes_[i][1];
+        int n3 = face_nodes_[i][2];
 
         std::vector<std::array<int, 2>> permutations = {{n2, n3}, {n3, n1}, {n1, n2}};
 
@@ -340,7 +332,7 @@ void Geometry::calculate_face_edges(std::vector<std::array<int, 3>>& face_nodes)
 int Geometry::find_edge_index(int n1, int n2) {
     // Find the index of an edge in the __edges_ array
     for (int i = 0; i < edges_.size(); ++i) {
-        if ((edges_[0]  == n1 && edges_[1] == n2) || (edges_[0]  == n2 && edges_[1]  == n1)) {
+        if ((edges_[i][0] == n1 && edges_[i][1] == n2) || (edges_[i][0] == n2 && edges_[i][1] == n1)) {
             return i;
         }
     }
@@ -351,7 +343,7 @@ void Geometry::calculate_twist_angles() {
     // Placeholder method to handle twist angle calculation (if needed later)
 }
 
-void Geometry from_txt(const std::string& fname) {
+void Geometry::from_txt(const std::string& fname) {
     if (!std::filesystem::exists(fname)) {
         throw std::runtime_error(fname + " is not a valid path");
     }
@@ -400,8 +392,8 @@ void Geometry from_txt(const std::string& fname) {
                 throw std::runtime_error("Duplicate header: " + line + " at line " + std::to_string(line_num));
             }
 
-            process_temp(cur_header);
-            cur_header = h_id;
+            process_temp(cur_h, temp, nodes_, edges_, face_nodes_);
+            cur_h = h_id;
             h_flag[h_id] = true;
             continue;
         }
@@ -418,11 +410,11 @@ void Geometry from_txt(const std::string& fname) {
             }
         }
 
-        if (cur_header < 0 || values.size() != expected_values[cur_header]) {
+        if (cur_h < 0 || values.size() != expected_values[cur_h]) {
             throw std::runtime_error(
                 "Incorrect number of values at line " + std::to_string(line_num) +
                 " (got " + std::to_string(values.size()) +
-                ", expected " + std::to_string(expected_values[cur_header]) + ")"
+                ", expected " + std::to_string(expected_values[cur_h]) + ")"
             );
         }
 
@@ -430,12 +422,12 @@ void Geometry from_txt(const std::string& fname) {
     }
 
     // Process any remaining data
-    process_temp(cur_header);
+    process_temp(cur_h, temp, nodes_, edges_, face_nodes_);
 }
 
 void Geometry::process_temp(int header,
                             std::vector<std::vector<double>>& temp,
-                            std::vector<Eigen::VectorXd>& nodes,
+                            std::vector<Eigen::Vector3d>& nodes,
                             std::vector<std::array<int, 2>>& edges,
                             std::vector<std::array<int, 3>>& triangles) {
     if (header < 0) return;
@@ -461,13 +453,16 @@ void Geometry::process_temp(int header,
 }
 
 std::pair<std::vector<std::array<int, 2>>, std::vector<std::array<int, 2>>>
-separate_joint_edges(const std::vector<std::array<int, 3>>& triangles,
+Geometry::separate_joint_edges(const std::vector<std::array<int, 3>>& triangles,
                      const std::vector<std::array<int, 2>>& edges) {
+                        
     
     // Return empty vectors if no edges
     if (edges.empty()) {
         return {{}, {}};
     }
+    std::vector<std::array<int, 2>> rod_shell_joint_edges;
+    std::vector<std::array<int, 2>> rod_edges;
 
     // Step 1: collect all unique shell node indices
     std::unordered_set<int> shell_nodes;
@@ -494,5 +489,11 @@ separate_joint_edges(const std::vector<std::array<int, 3>>& triangles,
         }
     }
 
-    return {rod_shell_joint_edges, rod_edges};
+    return std::make_pair(rod_shell_joint_edges, rod_edges);
+}
+
+// FOR TESTING
+int main() {
+    Geometry geom("mesh.txt"); 
+    return 0;
 }
