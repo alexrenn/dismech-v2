@@ -1,34 +1,33 @@
 #include "softRobot.h"
-#include "robotState.h"
-#include "geometry.h"
+#include <unordered_set>
 
-void SoftRobot::SoftRobot(const GeomParams& geom, const Material& material, const Geometry& geo, 
+SoftRobot::SoftRobot(const GeomParams& geom, const Material& material, const Geometry& geo, 
                             const SimParams& sim_params, const Environment& env, const RobotState& state)
         : sim_params_(sim_params), env_(env), state_(state){
 
         this->_init_geometry(geo);
         this->_init_stiffness(geom, material);
         this->_init_state(geo);
-        this->_init_springs(geo);
-        mass_matrix = get_mass_matrix(geom, material);
+        //this->_init_springs(geo);
+        _get_mass_matrix(geom, material);
     }
 
 void SoftRobot::_init_geometry(const Geometry& geo)
  {
     // Initialize Geometry Properties
-    n_nodes_ = geo.nodes.size();
-    n_edges_rod_only_ = geo.rod_edges.size();
-    n_edges_shell_only_ = geo.shell_edges.size();
-    int n_edges_joint = geo.rod_shell_joint_edges_total.size();
-    n_edges_ = geo.edges.size();
-    n_edges_dof_ = n_edges_rod_only + n_edges_joint;
-    n_faces_ = geo.face_nodes.size(); // TODO come back to it
 
-    // Assign references to the original data, avoiding duplicates
-    nodes_ = geo.nodes;
-    edges_ = geo.edges;
-    face_nodes_shell_ = geo.face_nodes;
-    twist_angles_ = geo.twist_angles;
+    n_nodes_ = geo.getNodes().size();
+    n_edges_ = geo.getEdges().size();    
+    n_edges_rod_only = geo.getRodEdges().size();
+    n_edges_shell_only = geo.getShellEdges().size();
+    int n_edges_joint = geo.getRodShellJointEdgesTotal().size();
+    n_edges_dof_ = n_edges_rod_only + n_edges_joint;
+    n_faces_ = geo.getFaceNodes().size();
+    face_edges_ = geo.getFaceEdges();
+    nodes_ = geo.getNodes();
+    edges_ = geo.getEdges();
+    face_nodes_shell_ = geo.getFaceNodes();
+    twist_angles_ = geo.getTwistAngles();
 
     // Initialize DOF vector
     n_dof_ = 3 * n_nodes_ + n_edges_dof_;
@@ -43,11 +42,16 @@ void SoftRobot::_init_geometry(const Geometry& geo)
         q0_(3 * n_nodes_ + i) = twist_angles_[i];
     }
 
-    // Midedge bending has more DOF
-    if (sim_params_.use_mid_edges) {
-        n_dof_ += n_edges_shell_only_;
+
+    // TODO: temporary until compute_tfc_midedge is implemented
+    Eigen::VectorXi temp = Eigen::VectorXi::Zero(n_dof_); 
+    // tau0_.resize(n_dof_, temp); // Initialize tau0_ with zeros
+
+   /* // Midedge bending has more DOF
+    if (sim_params_.use_mid_edge) {
+        n_dof_ += n_edges_shell_only;
     
-        Eigen::VectorXd extra = Eigen::VectorXd::Zero(n_edges_shell_only_); // Create extra zeros
+        Eigen::VectorXd extra = Eigen::VectorXd::Zero(n_edges_shell_only); // Create extra zeros
         Eigen::VectorXd q0_extended(n_dof_); // Concatenate the two vectors
         q0_extended << q0_, extra;
         q0_ = q0_extended;
@@ -60,13 +64,13 @@ void SoftRobot::_init_geometry(const Geometry& geo)
         init_cs_.clear();
         init_xis_.clear();
     }
-    
+    */
     // Now compute reference lengths and face areas
-    ref_len = _get_ref_len();
-    voronoi_ref_len = _get_voronoi_ref_len();
-    face_area = get_face_area();
+    _get_ref_len();
+    _get_voronoi_ref_len();
+    _get_face_area();
  }
-
+/*
  // TOOD: rod sitffness
 void SoftRobot::_init_stiffness(const GeomParams& geom, const Material& material) {
     RodStiffness rod = compute_rod_stiffness(geom, material);
@@ -79,38 +83,56 @@ void SoftRobot::_init_stiffness(const GeomParams& geom, const Material& material
     this->ks = shell.ks;
     this->kb = shell.kb;
 }
-
+*/
 void SoftRobot::_init_state(const Geometry& geo) {
     // Initialize RobotState state for q0
-    auto [a1, a2] = this->compute_space_parallel();
+    auto [a1, a2] = this->compute_space_parallel(); // TODO parallel_transport
 
-    auto [m1, m2] = this->compute_material_directors(this->q0, a1, a2);
-
-    int n = static_cast<int>(geo.bend_twist_springs.size());
+    auto [m1, m2] = this->compute_material_directors(q0_, a1, a2);
+/*
+    int n = static_cast<int>(geo.getBendTwistSprings().size());
     for (int i = 0; i < n; ++i) {
-        edges_[i][0] = geo.bend_twist_springs[i][1];
-        edges_[i][1] = geo.bend_twist_springs[i][3];
+        edges_[i][0] = geo.getBendTwistSprings()[i][1];
+        edges_[i][1] = geo.getBendTwistSprings()[i][3];
     }
+
+
 
     std::vector<int> sign(n, 0);
     for (int i = 0; i < n; ++i) {
         sign[i] = bend_twist_signs_[i];  // Assuming you have bend_twist_signs_
     }
+        */
 
-    std::vector<double> undef_ref_twist; // RADHA is this the correct type?
-    if (edges.size() > 0) {
+    /* std::vector<double> undef_ref_twist; 
+    if (edges_.size() > 0) {
         Eigen::VectorXd zero_twist = Eigen::VectorXd::Zero(sign.size());
         undef_ref_twist = compute_reference_twist(
-            edges, sign, a1, this->tangent, zero_twist);
+            edges_, sign, a1, this->tangent_, zero_twist);
     } else {
         undef_ref_twist.resize(0, 0); // Empty matrix
-    }
+    } */
+
+
+    // TODO temp until springs are implemented
+    Eigen::VectorXi temp = Eigen::VectorXi::Zero(edges_.size());  // unsure if this is right size
+    const Eigen::VectorXi& undef_ref_twist = temp;
+    
 
     // Initialize robot state
-    this->state = RobotState::init(
-        this->q0, a1, a2, m1, m2, undef_ref_twist, this->tau0);
+    this->state_ = RobotState (
+        this->q0_,
+        Eigen::VectorXd::Zero(q0_.size()), // Empty vector for 'u'
+        std::vector<Eigen::Vector3d>(), // Empty vector for 'a'
+        a1, // computed above
+        a2, // computed above
+        m1, // computed above
+        m2, // computed above
+        undef_ref_twist, // need compute_reference_twist (springs)
+        Eigen::VectorXd::Zero(n_dof_), // empty for now tau0_
+        free_dof_);
 }
-
+/*
 void SoftRobot::_init_springs(const Geometry& geo) {
     int n_rod = geo.rod_stretch_springs.size();
 
@@ -165,7 +187,7 @@ void SoftRobot::_init_springs(const Geometry& geo) {
             this->triangle_springs_.emplace_back(
                 geo.face_nodes[i],
                 geo.face_shell_edges[i],
-                geo.face_edges[i],
+                geo.face_edges_[i],
                 geo.sign_faces[i],
                 this->ref_len,
                 this->face_area_[i],
@@ -192,55 +214,53 @@ void SoftRobot::_init_springs(const Geometry& geo) {
         }
         this->triangle_springs_.clear(); // No triangle springs
     }
-}
-
+} */
 void SoftRobot::_get_mass_matrix(const GeomParams& geom, const Material& material) {
-    mass_matrix = Eigen::VectorXd::Zero(this->n_dof);  // Reuse the member variable
+    mass_matrix = Eigen::VectorXd::Zero(this->n_dof_);  // using the member variable
 
     // Shell face contributions
-    if (this->n_faces > 0) {
-        std::vector<std::array<int, 3>>faces = this->face_nodes_shell; // (n_faces, 3)
+    if (this->n_faces_ > 0) {
+        std::vector<std::array<int, 3>>faces = this->face_nodes_shell_; // (n_faces, 3)
 
-        std::vector<double> areas(this->n_faces_); // TODO std vector of doubles (area of each triangle)
-        std::vector<double> m_shell(this->n_faces_);; // TODO std vector of doubles (area of each triangle)
+        std::vector<double> areas(this->n_faces_);
+        std::vector<double> m_shell(this->n_faces_);; 
 
-        // TODO combine into one for loop
         for (size_t i = 0; i < faces.size(); ++i) {
             const auto& face = faces[i];
             Eigen::Vector3d v1 = this->nodes_[face[1]] - this->nodes_[face[0]];
             Eigen::Vector3d v2 = this->nodes_[face[2]] - this->nodes_[face[1]];
 
             double area = 0.5 * v1.cross(v2).norm();
-            areas[i] = area;
-            m_shell(i) = material.density * area * geom.shell_h;
-        }
-        for (size_t i = 0; i < faces.size(); ++i) {
-            const auto& face = faces[i];
             for (int j = 0; j < 3; ++j) {
                 int node_id = face[j];
                 for (int k = 0; k < 3; ++k) {
                     int dof = 3 * node_id + k;
-                    mass_matrix(dof) += m_shell(i) / 3.0;
+                    mass_matrix(dof) +=material.density * area * geom.shell_h / 3.0;
                 }
             }
         }
     }
 
     // Node contributions
-    if (this->n_nodes > 0) {
-        std::vector<double> dm_nodes; // RADHA types?
+    if (this->n_nodes_ > 0) {
+        std::vector<double> dm_nodes(this->n_nodes_);
+        double scale = 0.0; 
         if (geom.axs >= 0.0) {
-            dm_nodes = this->voronoi_ref_len * geom.axs * material.density; // TODO change
+            scale = geom.axs * material.density;
         } else {
             double area = M_PI * geom.rod_r0 * geom.rod_r0;
-            dm_nodes = this->voronoi_ref_len * area * material.density;
+            scale = area * material.density;
         }
 
-        // TODO: optimize??
-        for (int i = 0; i < this->n_nodes; ++i) {
+        // Manually fill in scaled values
+        for (int i = 0; i < this->n_nodes_; ++i) {
+            dm_nodes[i] = this->voronoi_ref_len[i] * scale;
+        }
+
+        for (int i = 0; i < this->n_nodes_; ++i) {
             for (int j = 0; j < 3; ++j) {
                 int dof = 3 * i + j;
-                mass_matrix(dof) += dm_nodes(i);
+                mass_matrix(dof) += dm_nodes[i];
             }
         }
     }
@@ -248,232 +268,305 @@ void SoftRobot::_get_mass_matrix(const GeomParams& geom, const Material& materia
     // Edge contributions
     // TODO match python code
     if (this->n_edges_dof > 0) {
-        std::vector<double> dm_edges; // RADHA types?
+        std::vector<double> dm_edges(this->n_edges_dof);
+        std::vector<double> edge_mass(this->n_edges_dof);
         if (geom.axs >= 0.0) {
-            dm_edges = this->ref_len.head(this->n_edges_dof) * geom.axs * material.density; // TODO change
+            for (int i = 0; i < this->n_edges_dof; ++i) {
+                dm_edges[i] = this->ref_len[i] * geom.axs * material.density;
+            }
+            for (int i = 0; i < this->n_edges_dof; ++i) {
+                edge_mass[i] = dm_edges[i] * 0.5 * (geom.rod_r0 * geom.rod_r0);
+            }
+
         } else {
             double area = M_PI * geom.rod_r0 * geom.rod_r0;
-            dm_edges = this->ref_len.head(this->n_edges_dof) * area * material.density; // head is first n entries
+            for (int i = 0; i < this->n_edges_dof; ++i) {
+                dm_edges[i] = this->ref_len[i] * area * material.density;
+            }
+            for (int i = 0; i < this->n_edges_dof; ++i) {
+                edge_mass[i] = dm_edges[i] * 0.5 * (geom.rod_r0 * geom.rod_r0);
+            }
         }
 
-        std::vector<double> edge_mass = dm_edges * 0.5 * (geom.rod_r0 * geom.rod_r0);
         for (int i = 0; i < this->n_edges_dof; ++i) {
-            int dof = 3 * this->n_nodes + i;
-            mass_matrix(dof) = edge_mass(i); 
+            int dof = 3 * this->n_nodes_ + i;
+            mass_matrix(dof) = edge_mass[i]; 
         }
     }
 }
 
 //TODO: check vectorization
-void SoftRobot::_get_ref_len() const {
-    std::vector<Eigen::VectorXd> node1 = nodes(edges.col(0), Eigen::all);  // Start points
-    std::vector<Eigen::VectorXd> node2 = nodes(edges.col(1), Eigen::all);  // End points
-    std::vector<Eigen::VectorXd> edge_vectors = node2 - node1;
-    this->ref_len = edge_vectors.rowwise().norm();  // Lengths of vectors
-    return ref_len;
+void SoftRobot::_get_ref_len() {
+    this->ref_len = std::vector<double>();  // Allocate output vector
+    this->ref_len.resize(n_edges_); // Allocate memory for n_edges_ elements
+
+    for (size_t i = 0; i < n_edges_; ++i) {
+        const Eigen::Vector3d& node1 = nodes_[edges_[i][0]];
+        const Eigen::Vector3d& node2 = nodes_[edges_[i][1]];
+        this->ref_len[i] = (node2 - node1).norm();
+    }
 }
 
-void SoftRobot::_get_voronoi_ref_len() const {
-    Eigen::MatrixXi edges = this->edges.topRows(this->n_edges_dof); // Select first n_edges_dof edges // TODO std vector array int 2
-    int n_nodes = this->n_nodes;
-    Eigen::VectorXd weights = 0.5 * this->ref_len.head(this->n_edges_dof); // Half edge lengths // TODO std vector double
-
-    Eigen::VectorXd contributions = Eigen::VectorXd::Zero(n_nodes); // Initialize with zeros // TODO std vector double
-
-    for (int i = 0; i < edges.rows(); ++i) {
-        contributions(edges(i, 0)) += weights(i); // Add half length to first node
-        contributions(edges(i, 1)) += weights(i); // Add half length to second node
+void SoftRobot::_get_voronoi_ref_len() {
+    std::vector<std::array<int, 2>> local_edges(edges_.begin(), edges_.begin() + n_edges_dof);
+    std::vector<double> weights(this->n_edges_dof);
+    for (int i = 0; i < this->n_edges_dof; ++i) {
+        weights[i] = 0.5 * this->ref_len[i];
     }
+    
+    std::vector<double> contributions(n_nodes_, 0.0); // Initialize with zeros
 
+    for (size_t i = 0; i < local_edges.size(); ++i) {
+    const auto& edge = local_edges[i];
+            contributions[edge[0]] += weights[i]; // Add half length to first node
+            contributions[edge[1]] += weights[i]; // Add half length to second node
+    }
+   
     this->voronoi_ref_len = contributions;
 }
 
-void SoftRobot::_get_voronoi_area() const {
-    if (this->face_nodes_shell.size() == 0) {
-        return Eigen::VectorXd(); // Return empty vector if no faces
-        // TODO std vector double
+void SoftRobot::_get_voronoi_area() {
+    if (this->face_nodes_shell_.size() == 0) {
+        this->voronoi_area.clear(); 
+        return; // Return empty vector if no faces
     }
 
-    const Eigen::MatrixXi& faces = this->face_nodes_shell;
-    Eigen::MatrixXd v1 = this->nodes(faces.col(1), Eigen::all) - this->nodes(faces.col(0), Eigen::all);
-    Eigen::MatrixXd v2 = this->nodes(faces.col(2), Eigen::all) - this->nodes(faces.col(1), Eigen::all);
-    Eigen::MatrixXd cross = v1.rowwise().cross(v2);
-    Eigen::VectorXd areas = 0.5 * cross.rowwise().norm(); // TODO std vector double
+    std::vector<std::array<int, 3>> faces = this->face_nodes_shell_;
+    n_faces_ = faces.size();
 
-    Eigen::VectorXd node_areas = Eigen::VectorXd::Zero(this->n_nodes); // TODO std vector double
-    for (int i = 0; i < faces.rows(); ++i) {
-        node_areas(faces(i, 0)) += areas(i) / 3.0;
-        node_areas(faces(i, 1)) += areas(i) / 3.0;
-        node_areas(faces(i, 2)) += areas(i) / 3.0;
-    }
-
-    this->voronoi_area = node_areas
-}
-
-void SoftRobot::_get_face_area() const {
-    if (this->n_faces == 0) {
-        return Eigen::VectorXd(); // Empty vector if no faces // TODO std vector double
-    }
-
-    const Eigen::MatrixXi& faces = this->face_nodes_shell; // TODO std vector array int 3
-    Eigen::VectorXd areas(faces.rows()); // TODO std vector double
-
-    for (int i = 0; i < faces.rows(); ++i) {
-        Eigen::Vector3d a = this->nodes.row(faces(i, 0));
-        Eigen::Vector3d b = this->nodes.row(faces(i, 1));
-        Eigen::Vector3d c = this->nodes.row(faces(i, 2));
+    std::vector<double> areas(n_faces_);
+    for (int i = 0; i < n_faces_; ++i) {
+        Eigen::Vector3d a = this->nodes_[faces[i][0]]; 
+        Eigen::Vector3d b = this->nodes_[faces[i][1]];
+        Eigen::Vector3d c = this->nodes_[faces[i][2]];
 
         Eigen::Vector3d v1 = b - a;
         Eigen::Vector3d v2 = c - b;
-        double area = 0.5 * (v1.cross(v2)).norm();
-
-        areas(i) = area;
+        areas[i] = 0.5 * v1.cross(v2).norm();  // triangle area
+    }
+    std::vector<double> node_areas(this->n_nodes_, 0.0);
+    for (int i = 0; i < n_faces_; ++i) {
+        double share = areas[i] / 3.0;
+        node_areas[faces[i][0]] += share;
+        node_areas[faces[i][1]] += share;
+        node_areas[faces[i][2]] += share;
     }
 
-    this->face_area = area;
+    this->voronoi_area = node_areas;
 }
 
-void SoftRobot::scale_mass_matrix(const Eigen::Vector3d& nodes, double scale) {
-    Eigen::VectorXi dof_indices = this->map_node_to_dof(nodes); // TODO std vector int
-    for (int i = 0; i < dof_indices.size(); ++i) {
-        this->mass_matrix(dof_indices(i)) *= scale;
+void SoftRobot::_get_face_area() {
+    if (this->n_faces_ == 0) {
+        this->face_area.clear();  // Clear if no faces
+        return;
+    }
+
+    const std::vector<std::array<int, 3>>& faces = this->face_nodes_shell_;
+    std::vector<double> areas(faces.size(), 0.0); 
+
+    for (size_t i = 0; i < faces.size(); ++i) {
+        const Eigen::Vector3d& a = this->nodes_[faces[i][0]];
+        const Eigen::Vector3d& b = this->nodes_[faces[i][1]];
+        const Eigen::Vector3d& c = this->nodes_[faces[i][2]];
+
+        Eigen::Vector3d v1 = b - a;
+        Eigen::Vector3d v2 = c - b;
+        areas[i] = 0.5 * v1.cross(v2).norm();  // triangle area
+    }
+
+    this->face_area = areas;  // Save entire vector
+}
+
+void SoftRobot::scale_mass_matrix(const std::vector<Eigen::Vector3d>& nodes, double scale) {
+    std::vector<int> node_indices;
+    for (const auto& pos : nodes) {
+        // Find the index of the node with the given position
+        for (int i = 0; i < n_nodes_; ++i) {
+            if (nodes_[i].isApprox(pos)) { // Use isApprox for floating-point comparison
+                node_indices.push_back(i);
+                break; // Found the node, move to the next position
+            }
+        }
+    }
+
+    std::vector<std::array<int, 3>> dof_indices = this->map_node_to_dof(node_indices);
+    for (int i = 0; i < static_cast<int>(dof_indices.size()); ++i) {
+        for (int j = 0; j < 3; ++j) {
+            this->mass_matrix(dof_indices[i][j]) *= scale;
+        }
     }
 }
 
-std::tuple<Eigen::MatrixXd, Eigen::MatrixXd, Eigen::MatrixXd, Eigen::MatrixXd> SoftRobot::_init_curvature_midedge(const Geometry& geo) {
-    this->face_edges = geo.face_edges;
-    this->sign_faces = geo.sign_faces;
+// ask radha types
+/* std::tuple<Eigen::MatrixXd, 
+std::vector<std::vector<double>>,
+std::vector<std::vector<double>>,
+std::vector<std::vector<double>> d>
+SoftRobot::_init_curvature_midedge(const Geometry& geo) {
+    this->face_edges_ = geo.getFaceEdges();
+    this->sign_faces = geo.getSignFaces();
 
     // Vectorize face processing
-    Eigen::MatrixXd all_p_is = this->q0.block(0, this->map_node_to_dof(this->face_nodes_shell), this->q0.rows(), this->face_nodes_shell.size());
-    Eigen::MatrixXd all_xi_is = this->q0.block(0, this->map_edge_to_dof(this->face_edges), this->q0.rows(), this->face_edges.size());
+    // TODO  std::vector<<Eigen::Matrix3d> all_p_is
+    std::vector<std::array<double, 3>> all_p_is = this->extract_block(this->q0, this->face_nodes_shell);
+    std::vector<std::array<double, 3>> all_xi_is = this->extract_block(this->q0, this->face_edges_);
 
     // Compute initial tau0
-    this->tau0 = this->update_pre_comp_shell(this->q0);
-    Eigen::MatrixXd all_tau0_is = this->tau0.block(0, this->face_edges, this->tau0.rows(), this->face_edges.size()).transpose();
+    this->tau0_ = this->update_pre_comp_shell(this->q0);
+    // TODO std::vector<<Eigen::Matrix3d> all_tau0_is
+    Eigen::MatrixXd all_tau0_is = this->tau0.block(0, this->face_edges_, this->tau0.rows(), this->face_edges_.size()).transpose();
 
     // Compute t, f, c for all faces simultaneously
     Eigen::MatrixXd t, f, c;
     compute_tfc_midedge(all_p_is, all_tau0_is, this->sign_faces, t, f, c);
 
     return std::make_tuple(t, f, c, all_xi_is);
-}
+    // TODO std::vector<<Eigen::Matrix3d> t
+    //TODO std::vector<<array<double, 3>> f
+    // TODO std::vector<<array<double, 3>> c
+    // TODO std::vector<<array<double, 3>> xi_is
 
-Eigen::MatrixXd SoftRobot::update_pre_comp_shell(const Eigen::MatrixXd& q) {
-    if (!this->sim_params.use_mid_edge) {
-        return Eigen::MatrixXd::Zero(0, 0);
+}
+    */
+
+std::vector<Eigen::VectorXd> SoftRobot::update_pre_comp_shell(const Eigen::MatrixXd& q) {
+    if (!this->sim_params_.use_mid_edge) {
+        return std::vector<Eigen::VectorXd>(); // Return empty vector if not using mid-edge
     }
 
     // Compute face normals
+    std::vector<Eigen::Vector3d> face_normals(this->face_nodes_shell_.size());
+    for (size_t i = 0; i < this->face_nodes_shell_.size(); ++i) {
+        const auto& face = this->face_nodes_shell_[i];
+        Eigen::Vector3d q0 = q.col(face[0]);
+        Eigen::Vector3d q1 = q.col(face[1]);
+        Eigen::Vector3d q2 = q.col(face[2]);
 
-    // TODO std vector EigenVecXd (for all 3)
-    Eigen::MatrixXd v1 = q.block(0, this->map_node_to_dof(this->face_nodes_shell.col(1)), q.rows(), this->face_nodes_shell.cols()) -
-                         q.block(0, this->map_node_to_dof(this->face_nodes_shell.col(0)), q.rows(), this->face_nodes_shell.cols());
-    Eigen::MatrixXd v2 = q.block(0, this->map_node_to_dof(this->face_nodes_shell.col(2)), q.rows(), this->face_nodes_shell.cols()) -
-                         q.block(0, this->map_node_to_dof(this->face_nodes_shell.col(1)), q.rows(), this->face_nodes_shell.cols());
-    Eigen::MatrixXd face_normals = v1.cross(v2).rowwise().normalized();
+        Eigen::Vector3d v1 = q1 - q0;
+        Eigen::Vector3d v2 = q2 - q1;
+        face_normals[i] = v1.cross(v2).normalized();
+    }
 
     // Accumulate edge normals
-        // TODO std vector EigenVecXd
-    Eigen::MatrixXd edge_normals = Eigen::MatrixXd::Zero(this->n_edges, 3);
-    for (int i = 0; i < this->face_edges.rows(); ++i) {
-        edge_normals.row(this->face_edges(i, 0)) += face_normals.row(i);
-        edge_normals.row(this->face_edges(i, 1)) += face_normals.row(i);
+    std::vector<Eigen::Vector3d> edge_normals(this->n_edges_, Eigen::Vector3d::Zero());
+    std::vector<double> edge_counts(this->n_edges_, 0);
+
+    for (int i = 0; i < this->face_edges_.size(); ++i) {
+        int e0 = this->face_edges_[i][0];
+        int e1 = this->face_edges_[i][1];
+
+        edge_counts[e0] += 1;
+        edge_counts[e1] += 1;
+
+        edge_normals[e0] += face_normals[i];
+        edge_normals[e1] += face_normals[i];
     }
 
-    // Normalize edge normals
-    // combine these with the previous loop
-    Eigen::VectorXd edge_counts = Eigen::VectorXd::Zero(this->n_edges);
-    for (int i = 0; i < this->face_edges.rows(); ++i) {
-        edge_counts(this->face_edges(i, 0)) += 1;
-        edge_counts(this->face_edges(i, 1)) += 1;
-    }
-    for (int i = 0; i < this->n_edges; ++i) {
-        if (edge_counts(i) > 0) {
-            edge_normals.row(i) /= edge_counts(i);
+    for(int i = 0; i < this->n_edges_; ++i) {
+        if (edge_counts[i] > 0) { // Use square brackets
+            edge_normals[i] /= edge_counts[i];
         }
     }
-
     // Compute edge vectors and tau_0
-    // TODO std vector EigenVecXd
-    Eigen::MatrixXd edge_vecs = q.block(0, this->map_node_to_dof(this->edges.col(1)), q.rows(), this->edges.cols()) -
-                                q.block(0, this->map_node_to_dof(this->edges.col(0)), q.rows(), this->edges.cols());
-    // TODO std vector EigenVecXd
-    Eigen::MatrixXd tau_0 = edge_vecs.cross(edge_normals);
-    tau_0 = tau_0.rowwise().normalized();
+    tau0_.resize(this->edges_.size());
+    for (size_t i = 0; i < this->edges_.size(); ++i) {
+        int n0 = this->edges_[i][0];
+        int n1 = this->edges_[i][1];
 
-    return tau_0.transpose();
+        Eigen::Vector3d q0 = q.col(n0);
+        Eigen::Vector3d q1 = q.col(n1);
+        Eigen::Vector3d edge_vec = q1 - q0;
+
+        Eigen::Vector3d tau_0 = edge_vec.cross(edge_normals[i]).normalized();
+        tau0_[i] = tau_0;
+    }
+
+    return tau0_;
+
 }
 
-std::tuple<Eigen::MatrixXd, Eigen::MatrixXd> SoftRobot::compute_space_parallel() {
-    Eigen::MatrixXd a1 = Eigen::MatrixXd::Zero(this->n_edges_dof, 3);
-    Eigen::MatrixXd a2 = Eigen::MatrixXd::Zero(this->n_edges_dof, 3);
+std::pair<std::vector<Eigen::Vector3d>, std::vector<Eigen::Vector3d>>
+SoftRobot::compute_space_parallel() {
+    std::vector<Eigen::Vector3d> a1(this->n_edges_dof_, Eigen::Vector3d::Zero());
+    std::vector<Eigen::Vector3d> a2(this->n_edges_dof_, Eigen::Vector3d::Zero());
 
-    this->__tangent = this->_compute_tangent(this->__q0);
+    this->tangent_ = this->_compute_tangent(this->q0_); // tangent_ is std::vector<Eigen::Vector3d>
 
-    if (this->__tangent.size() > 0) {
+    if (!this->tangent_.empty()) {
         // Initialize first a1
-        Eigen::VectorXd a1_init = this->__tangent.row(0).cross(Eigen::Vector3d(0, 1, 0));
+        Eigen::Vector3d ref_y(0, 1, 0);
+        Eigen::Vector3d ref_z(0, 0, -1);
+
+        Eigen::Vector3d a1_init = this->tangent_[0].cross(ref_y);
         if (a1_init.norm() < 1e-6) {
-            a1_init = this->__tangent.row(0).cross(Eigen::Vector3d(0, 0, -1));
+            a1_init = this->tangent_[0].cross(ref_z);
         }
-        a1.row(0) = a1_init.normalized();
-        a2.row(0) = this->__tangent.row(0).cross(a1.row(0));
+        a1[0] = a1_init.normalized();
+        a2[0] = this->tangent_[0].cross(a1[0]);
 
-        // Iterative parallel transport (depends on previous a1)
-        for (int i = 1; i < this->n_edges_dof; ++i) {
-            Eigen::Vector3d t_prev = this->__tangent.row(i - 1);
-            Eigen::Vector3d t_curr = this->__tangent.row(i);
-            Eigen::Vector3d a1_prev = a1.row(i - 1);
+        // Iterative parallel transport
+        for (int i = 1; i < this->n_edges_dof_; ++i) {
+            const Eigen::Vector3d& t_prev = this->tangent_[i - 1];
+            const Eigen::Vector3d& t_curr = this->tangent_[i];
+            const Eigen::Vector3d& a1_prev = a1[i - 1];
 
-            a1.row(i) = parallel_transport(a1_prev, t_prev, t_curr);
-            a1.row(i) -= a1.row(i).dot(t_curr) * t_curr;
-            a1.row(i) = a1.row(i).normalized();
-            a2.row(i) = t_curr.cross(a1.row(i));
+            Eigen::Vector3d transported = parallel_transport(a1_prev, t_prev, t_curr);
+
+            // Remove component along t_curr
+            transported -= transported.dot(t_curr) * t_curr;
+            a1[i] = transported.normalized();
+            a2[i] = t_curr.cross(a1[i]);
         }
     }
 
-    return std::make_tuple(a1, a2);
+    return std::make_pair(a1, a2);
 }
 
-std::tuple<Eigen::MatrixXd, Eigen::MatrixXd> SoftRobot::compute_time_parallel(
-    const Eigen::MatrixXd& a1_old,
-    const Eigen::MatrixXd& q0,
-    const Eigen::MatrixXd& q) 
-{
-    Eigen::MatrixXd tangent0 = this->_compute_tangent(q0);
-    Eigen::MatrixXd tangent = this->_compute_tangent(q);
 
-    Eigen::MatrixXd a1_transported = parallel_transport(a1_old, tangent0, tangent);
+std::pair<std::vector<Eigen::Vector3d>, std::vector<Eigen::Vector3d>>
+SoftRobot::compute_time_parallel(const std::vector<Eigen::Vector3d>& a1_old,
+                                 const Eigen::VectorXd& q0,
+                                 const Eigen::VectorXd& q) {
+    // Get tangent vectors (as vectors of Vector3d)
+    std::vector<Eigen::Vector3d> tangent0 = this->_compute_tangent(q0);
+    std::vector<Eigen::Vector3d> tangent  = this->_compute_tangent(q);
 
-    // Orthonormalization
-    Eigen::VectorXd t_dot = (a1_transported.array() * tangent.array()).rowwise().sum();
-    Eigen::MatrixXd a1 = a1_transported - tangent.array().colwise() * t_dot.array();
-    
-    a1 = a1.array().rowwise() / a1.rowwise().norm().array(); // Normalize each row
-    Eigen::MatrixXd a2(a1.rows(), 3);
-    for (int i = 0; i < a1.rows(); ++i) {
-        a2.row(i) = tangent.row(i).cross(a1.row(i));
+    // Parallel transport a1_old from tangent0 to tangent
+    std::vector<Eigen::Vector3d> a1_transported = parallel_transport(a1_old, tangent0, tangent);
+
+    size_t N = tangent.size();
+    std::vector<Eigen::Vector3d> a1(N);
+    std::vector<Eigen::Vector3d> a2(N);
+
+    for (size_t i = 0; i < N; ++i) {
+        double t_dot = a1_transported[i].dot(tangent[i]);
+        a1[i] = a1_transported[i] - t_dot * tangent[i];
+        a1[i].normalize();  // Normalize in-place
+        a2[i] = tangent[i].cross(a1[i]);
     }
 
-    return std::make_tuple(a1, a2);
+    return std::make_pair(a1, a2);
 }
-
-std::pair<Eigen::MatrixXd, Eigen::MatrixXd> SoftRobot::compute_material_directors(
+std::pair<std::vector<Eigen::Vector3d>, std::vector<Eigen::Vector3d>> SoftRobot::compute_material_directors(
     const Eigen::VectorXd& q,
-    const Eigen::MatrixXd& a1,
-    const Eigen::MatrixXd& a2)
+    const std::vector<Eigen::Vector3d>& a1,
+    const std::vector<Eigen::Vector3d>& a2)
 {
-    Eigen::VectorXd theta = q.segment(3 * n_nodes, n_edges_dof);
-    Eigen::MatrixXd cos_theta = theta.array().cos().matrix();
-    Eigen::MatrixXd sin_theta = theta.array().sin().matrix();
+    Eigen::VectorXd theta = q.segment(3 * n_nodes_, n_edges_dof_);
+    Eigen::VectorXd cos_theta = theta.array().cos();
+    Eigen::VectorXd sin_theta = theta.array().sin();
 
-    Eigen::MatrixXd m1 = cos_theta.asDiagonal() * a1 + sin_theta.asDiagonal() * a2;
-    Eigen::MatrixXd m2 = -sin_theta.asDiagonal() * a1 + cos_theta.asDiagonal() * a2;
+    std::vector<Eigen::Vector3d> m1(n_edges_dof_);
+    std::vector<Eigen::Vector3d> m2(n_edges_dof_);
+
+    for (int i = 0; i < n_edges_dof_; ++i) {
+        m1[i] = cos_theta(i) * a1[i] + sin_theta(i) * a2[i];
+        m2[i] = -sin_theta(i) * a1[i] + cos_theta(i) * a2[i];
+    }
 
     return std::make_pair(m1, m2);
 }
-
+/*
 Eigen::VectorXd SoftRobot::compute_reference_twist(
     const std::vector<BendTwistSpring>& springs,
     const Eigen::VectorXd& q,
@@ -493,106 +586,111 @@ Eigen::VectorXd SoftRobot::compute_reference_twist(
     }
 
     Eigen::MatrixXd tangent = _compute_tangent(q);
-    return ::compute_reference_twist(edges, sgn, a1, tangent, ref_twist);
-}
+    return compute_reference_twist(edges, sgn, a1, tangent, ref_twist);
+} */
 
-Eigen::MatrixXd SoftRobot::_compute_tangent(const Eigen::VectorXd& q)
-{
-    Eigen::MatrixXi edges = this->edges.topRows(n_edges_dof);
-    Eigen::VectorXi n0 = edges.col(0);
-    Eigen::VectorXi n1 = edges.col(1);
+std::vector<Eigen::Vector3d> SoftRobot::_compute_tangent(const Eigen::VectorXd& q) {
+    std::vector<Eigen::Vector3d> tangent(this->n_edges_dof_);
 
-    Eigen::MatrixXd pos0(n_edges_dof, 3), pos1(n_edges_dof, 3);
-    for (int i = 0; i < n_edges_dof; ++i) {
+    for (int i = 0; i < this->n_edges_dof_; ++i) {
+        int n0 = this->edges_[i][0];
+        int n1 = this->edges_[i][1];
+
+        // Convert node indices to DOF triplets
+        std::array<int, 3> dof0 = map_node_to_dof({n0})[0];
+        std::array<int, 3> dof1 = map_node_to_dof({n1})[0];
+
+        Eigen::Vector3d pos0(q[dof0[0]], q[dof0[1]], q[dof0[2]]);
+        Eigen::Vector3d pos1(q[dof1[0]], q[dof1[1]], q[dof1[2]]);
+
+        Eigen::Vector3d edge = pos1 - pos0;
+        double norm = edge.norm();
+        if (norm < 1e-10) norm = 1.0;
+
+        Eigen::Vector3d unit_vec = edge / norm;
+
         for (int j = 0; j < 3; ++j) {
-            pos0(i, j) = q(map_node_to_dof(n0(i)) + j);
-            pos1(i, j) = q(map_node_to_dof(n1(i)) + j);
+            if (std::abs(unit_vec(j)) < _TANGENT_THRESHOLD)
+                unit_vec(j) = 0.0;
         }
+
+        tangent[i] = unit_vec;
     }
-
-    Eigen::MatrixXd vecs = pos1 - pos0;
-    Eigen::VectorXd norms = vecs.rowwise().norm();
-    for (int i = 0; i < norms.size(); ++i)
-        if (norms(i) < 1e-10) norms(i) = 1.0;
-
-    Eigen::MatrixXd tangent = vecs.array().colwise() / norms.array();
-
-    for (int i = 0; i < tangent.rows(); ++i)
-        for (int j = 0; j < tangent.cols(); ++j)
-            if (std::abs(tangent(i, j)) < _TANGENT_THRESHOLD)
-                tangent(i, j) = 0;
 
     return tangent;
 }
 
 // Fix/free nodes and edges
-
-std::shared_ptr<SoftRobot> SoftRobot::free_nodes(const std::vector<int>& nodes, std::optional<int> axis, bool fix_edges) const {
+// ask radha should i be passing anything in here
+void SoftRobot::free_nodes(const std::vector<int>& nodes, std::optional<int> axis, bool fix_edges) {
     Eigen::VectorXi node_dof_mask = _get_node_dof_mask(nodes, axis);
-    Eigen::VectorXi new_dof = setdiff1d(fixed_dof, node_dof_mask);
+    Eigen::VectorXi new_dof = setdiff1d(fixed_dof_, node_dof_mask);
 
     if (fix_edges) {
         Eigen::VectorXi edge_dof_mask = _get_intermediate_edge_dof(nodes);
         new_dof = setdiff1d(new_dof, edge_dof_mask);
     }
 
-    return std::make_shared<SoftRobot>(_fix_dof(new_dof));
+    _fix_dof(new_dof);
 }
 
-std::shared_ptr<SoftRobot> SoftRobot::fix_nodes(const std::vector<int>& nodes, std::optional<int> axis, bool fix_edges) const {
+void SoftRobot::fix_nodes(const std::vector<int>& nodes, std::optional<int> axis, bool fix_edges) {
     Eigen::VectorXi node_dof_mask = _get_node_dof_mask(nodes, axis);
-    Eigen::VectorXi new_dof = union1d(fixed_dof, node_dof_mask);
+    Eigen::VectorXi new_dof = setdiff1d(get_fixed_dof(), node_dof_mask);
 
     if (fix_edges) {
         Eigen::VectorXi edge_dof_mask = _get_intermediate_edge_dof(nodes);
-        new_dof = union1d(new_dof, edge_dof_mask);
+        new_dof = setdiff1d(new_dof, edge_dof_mask);
     }
 
-    return std::make_shared<SoftRobot>(_fix_dof(new_dof));
+    _fix_dof(new_dof);
 }
 
-std::shared_ptr<SoftRobot> SoftRobot::free_edges(const std::vector<int>& edges) const {
+void SoftRobot::free_edges(const std::vector<std::array<int, 2>>& edges) {
     Eigen::VectorXi edge_dofs = map_edge_to_dof(edges);
-    Eigen::VectorXi new_dof = setdiff1d(fixed_dof, edge_dofs);
-    return std::make_shared<SoftRobot>(_fix_dof(new_dof));
+    Eigen::VectorXi new_dof = setdiff1d(fixed_dof_, edge_dofs);
+    _fix_dof(new_dof);
 }
 
-std::shared_ptr<SoftRobot> SoftRobot::fix_edges(const std::vector<int>& edges) const {
+void SoftRobot::fix_edges(const std::vector<std::array<int, 2>>& edges) {
     Eigen::VectorXi edge_dofs = map_edge_to_dof(edges);
-    Eigen::VectorXi new_dof = union1d(fixed_dof, edge_dofs);
-    return std::make_shared<SoftRobot>(_fix_dof(new_dof));
+    Eigen::VectorXi new_dof = union1d(fixed_dof_, edge_dofs);
+    return _fix_dof(new_dof);
 }
 
-std::shared_ptr<SoftRobot> SoftRobot::_fix_dof(const Eigen::VectorXi& new_fixed_dof) const {
-    SoftRobot updated = *this; // shallow copy
-    Eigen::VectorXi all_dof = Eigen::VectorXi::LinSpaced(n_dof, 0, n_dof - 1);
-    Eigen::VectorXi free_dof = setdiff1d(all_dof, new_fixed_dof);
-    updated.update(free_dof);
-    return updated;
+// TODO FIX
+void SoftRobot::_fix_dof(const Eigen::VectorXi& new_fixed_dof) {
+    Eigen::VectorXi all_dof = Eigen::VectorXi::LinSpaced(n_dof_, 0, n_dof_ - 1);
+    free_dof_ = setdiff1d(all_dof, new_fixed_dof);
+    fixed_dof_ = new_fixed_dof;
 }
 
 
-Eigen::VectorXi SoftRobot::_get_intermediate_edge_dof(const Eigen::VectorXi& nodes) const {
-    Eigen::VectorXi edge_mask = (
-        isin(edges.col(0), nodes) &&
-        isin(edges.col(1), nodes)
-    );
+Eigen::VectorXi SoftRobot::_get_intermediate_edge_dof(const std::vector<int>& nodes) {
+    std::vector<std::array<int, 2>> matching_edges;
+    for (int i = 0; i < this->n_edges_; ++i) {
+        // Extract node indices for the current edge
+        int node1_index = this->edges_[i][0];
+        int node2_index = this->edges_[i][1];
 
-    std::vector<int> matching_edges;
-    for (int i = 0; i < edge_mask.size(); ++i) {
-        if (edge_mask(i)) matching_edges.push_back(i);
+        // Check if both nodes of the edge are in the 'nodes' vector
+        bool node1_found = false;
+        bool node2_found = false;
+        for (int j = 0; j < nodes.size(); ++j) {
+            if (node1_index == nodes[j]) node1_found = true;
+            if (node2_index == nodes[j]) node2_found = true;
+        }
+
+        if (node1_found && node2_found) {
+            matching_edges.push_back(this->edges_[i]);
+        }
     }
 
-    Eigen::VectorXi edges_vec = Eigen::Map<Eigen::VectorXi>(matching_edges.data(), matching_edges.size());
+    std::vector<std::array<int, 2>> edges_vec = matching_edges;
 
-    if (sim_params.two_d_sim) {
-        Eigen::VectorXi all_edges = Eigen::VectorXi::LinSpaced(n_edges_dof, 0, n_edges_dof - 1);
-        edges_vec = union1d(edges_vec, all_edges);
-    }
-
+    // map_edge_to_dof expects edge *pairs*, not edge *indices*
     return map_edge_to_dof(edges_vec);
 }
-
 
 // Utility Helpers
 Eigen::VectorXi setdiff1d(const Eigen::VectorXi& a, const Eigen::VectorXi& b) {
@@ -625,23 +723,26 @@ std::vector<bool> isin(const Eigen::VectorXi& a, const Eigen::VectorXi& b) {
 }
 
 // Perturb system
-std::shared_ptr<SoftRobot> SoftRobot::move_nodes(const std::vector<int>& nodes, const Eigen::VectorXd& perturbation, std::optional<int> axis) const {
-    Eigen::VectorXd q = state.q; // Copy current state
+void SoftRobot::move_nodes(const std::vector<int>& nodes, const Eigen::VectorXd& perturbation, std::optional<int> axis) {
     Eigen::VectorXi dof_mask = _get_node_dof_mask(nodes, axis);
-    q(dof_mask) += perturbation;
-    return std::make_shared<SoftRobot> (update(q));
+    state_.q0(dof_mask) += perturbation;
 }
 
-std::shared_ptr<SoftRobot> SoftRobot::twist_edges(const std::vector<int>& edges, const Eigen::VectorXd& perturbation) const {
-    Eigen::VectorXd q = state.q; // Copy current state
+void SoftRobot::twist_edges(const std::vector<std::array<int, 2>>& edges, const Eigen::VectorXd& perturbation) {
     Eigen::VectorXi dof_mask = map_edge_to_dof(edges);
-    q(dof_mask) += perturbation;
-    return std::make_shared<SoftRobot> (update(q));
+    state_.q0(dof_mask) += perturbation;
 }
 
 //Utility
-static Eigen::VectorXi get_node_dof_mask(const std::vector<int>& nodes, std::optional<int> axis = std::nullopt) {
-    Eigen::MatrixXi node_dof = map_node_to_dof(nodes);
+Eigen::VectorXi SoftRobot::_get_node_dof_mask(const std::vector<int>& nodes, std::optional<int> axis) const {
+    std::vector<std::array<int, 3>> node_dof_vec = map_node_to_dof(nodes);
+    Eigen::MatrixXi node_dof(node_dof_vec.size(), 3);
+    for (int i = 0; i < node_dof_vec.size(); ++i) {
+        node_dof(i, 0) = node_dof_vec[i][0];
+        node_dof(i, 1) = node_dof_vec[i][1];
+        node_dof(i, 2) = node_dof_vec[i][2];
+    }
+
     if (axis.has_value()) {
         // Return just one column (axis-specified)
         return node_dof.col(axis.value());
@@ -657,27 +758,27 @@ static Eigen::VectorXi get_node_dof_mask(const std::vector<int>& nodes, std::opt
         return flat;
     }
 }
-
 // Maps a list of node numbers to their 3 DOFs each: [x, y, z]
-static Eigen::MatrixXi map_node_to_dof(const std::vector<int>& node_nums) {
-    int num_nodes = node_nums.size();
-    Eigen::MatrixXi dof_map(num_nodes, 3);
-
+std::vector<std::array<int, 3>> SoftRobot::map_node_to_dof(const std::vector<int>& node_indices) const {
+    int num_nodes = node_indices.size();
+    std::vector<std::array<int, 3>> dof_map(num_nodes);
     for (int i = 0; i < num_nodes; ++i) {
-        int base = 3 * node_nums[i];
-        dof_map(i, 0) = base;
-        dof_map(i, 1) = base + 1;
-        dof_map(i, 2) = base + 2;
+        int base = 3 * node_indices[i];
+        dof_map[i][0] = base;
+        dof_map[i][1] = base + 1;
+        dof_map[i][2] = base + 2;
     }
+
     return dof_map;
 }
 
-Eigen::VectorXi SoftRobot::map_edge_to_dof(const std::vector<int>& edge_nums) const {
-    Eigen::VectorXi dof_indices(edge_nums.size());
-    int offset = 3 * this->n_nodes;
+Eigen::VectorXi SoftRobot::map_edge_to_dof(const std::vector<std::array<int, 2>>& edges) const {
+    int num_edges = edges.size();
+    Eigen::VectorXi dof_indices(num_edges);
+    int offset = 3 * this->n_nodes_;
 
-    for (int i = 0; i < edge_nums.size(); ++i) {
-        dof_indices(i) = offset + edge_nums[i];
+    for (int i = 0; i < num_edges; ++i) {
+        dof_indices(i) = offset + i; // Assuming edges are indexed sequentially
     }
 
     return dof_indices;
@@ -687,7 +788,7 @@ Eigen::VectorXi SoftRobot::map_edge_to_dof(const std::vector<int>& edge_nums) co
 Eigen::VectorXi SoftRobot::map_face_edge_to_dof(const std::vector<int>& edge_nums) const {
     int num_edges = edge_nums.size();
     Eigen::VectorXi dof_indices(num_edges);
-    int offset = 3 * n_nodes + n_edges_dof;
+    int offset = 3 * n_nodes_ + n_edges_dof;
 
     for (int i = 0; i < num_edges; ++i) {
         dof_indices(i) = offset + edge_nums[i];
@@ -696,30 +797,50 @@ Eigen::VectorXi SoftRobot::map_face_edge_to_dof(const std::vector<int>& edge_num
     return dof_indices;
 }
 
-std::shared_ptr<SoftRobot> SoftRobot::update(
-    std::optional<Eigen::VectorXd> q,
-    std::optional<Eigen::VectorXd> u,
-    std::optional<Eigen::VectorXd> a,
-    std::optional<Eigen::VectorXd> a1,
-    std::optional<Eigen::VectorXd> a2,
-    std::optional<Eigen::VectorXd> m1,
-    std::optional<Eigen::VectorXd> m2,
-    std::optional<Eigen::VectorXd> ref_twist,
-    std::optional<Eigen::VectorXi> free_dof
-) const {
-    RobotState new_state = state_; // copy
+    // Getter for node_dof_indices (Node DOF indices matrix)
+    std::vector<std::array<int, 3>> SoftRobot::get_node_dof_indices() const {
+        std::vector<std::array<int, 3>> indices(n_nodes_);
+        for (int i = 0; i < n_nodes_; ++i) {
+            indices[i] = {3 * i, 
+                          3 * i + 1, 
+                          3 * i + 2};
+        }
+        return indices;
+    }
 
-    if (q) new_state.q = *q;
-    if (u) new_state.u = *u;
-    if (a) new_state.a = *a;
-    if (a1) new_state.a1 = *a1;
-    if (a2) new_state.a2 = *a2;
-    if (m1) new_state.m1 = *m1;
-    if (m2) new_state.m2 = *m2;
-    if (ref_twist) new_state.ref_twist = *ref_twist;
-    if (free_dof) new_state.free_dof = *free_dof;
-
-    return std::make_unique<SoftRobot>(new_state);
+    // Getter for fixed_dof (indices of constrained degrees of freedom)
+Eigen::VectorXi SoftRobot::get_fixed_dof() const {
+    Eigen::VectorXi fixed_dof(fixed_dof_.size());
+    for (int i = 0; i < fixed_dof_.size(); ++i) {
+        fixed_dof(i) = fixed_dof_[i];
+    }
+    return fixed_dof;
 }
+
+// std::shared_ptr<SoftRobot> SoftRobot::update(
+//     std::optional<Eigen::VectorXd> q,
+//     std::optional<Eigen::VectorXd> u,
+//     std::optional<Eigen::VectorXd> a,
+//     std::optional<Eigen::VectorXd> a1,
+//     std::optional<Eigen::VectorXd> a2,
+//     std::optional<Eigen::VectorXd> m1,
+//     std::optional<Eigen::VectorXd> m2,
+//     std::optional<Eigen::VectorXd> ref_twist,
+//     std::optional<Eigen::VectorXi> free_dof_
+// ) const {
+//     RobotState new_state = state_; // copy
+
+//     if (q) new_state.q = *q;
+//     if (u) new_state.u = *u;
+//     if (a) new_state.a = *a;
+//     if (a1) new_state.a1 = *a1;
+//     if (a2) new_state.a2 = *a2;
+//     if (m1) new_state.m1 = *m1;
+//     if (m2) new_state.m2 = *m2;
+//     if (ref_twist) new_state.ref_twist = *ref_twist;
+//     if (free_dof_) new_state.free_dof_ = *free_dof_;
+
+//     return std::make_unique<SoftRobot>(new_state);
+// }
 
 
