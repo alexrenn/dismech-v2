@@ -547,9 +547,9 @@ Geometry::separate_joint_edges(const std::vector<std::array<int, 3>>& triangles,
 }
 
 // FOR TESTING
-int main() {
-    Geometry geom("hex_parachute_n6.txt");
-    // Geometry geom("horizontal_rod_n21.txt");
-    // Geometry geom("mesh.txt");
-    return 0;
-}
+// int main() {
+//     Geometry geom("hex_parachute_n6.txt");
+//     // Geometry geom("horizontal_rod_n21.txt");
+//     // Geometry geom("mesh.txt");
+//     return 0;
+// }

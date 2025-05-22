@@ -1,13 +1,14 @@
 #include "softRobot.h"
 #include <unordered_set>
+#include <iostream>
 
 SoftRobot::SoftRobot(const GeomParams& geom, const Material& material, const Geometry& geo, 
                             const SimParams& sim_params, const Environment& env, const RobotState& state)
         : sim_params_(sim_params), env_(env), state_(state){
 
-        this->_init_geometry(geo);
-        this->_init_stiffness(geom, material);
-        this->_init_state(geo);
+        _init_geometry(geo);
+        // this->_init_stiffness(geom, material);
+        _init_state(geo);
         //this->_init_springs(geo);
         _get_mass_matrix(geom, material);
     }
@@ -32,17 +33,19 @@ void SoftRobot::_init_geometry(const Geometry& geo)
     // Initialize DOF vector
     n_dof_ = 3 * n_nodes_ + n_edges_dof_;
     q0_ = Eigen::VectorXd::Zero(n_dof_);
+
     
     // Fill node positions
     for (int i = 0; i < n_nodes_; ++i) {
         q0_.segment<3>(3 * i) = nodes_[i];
     }
+
     // Fill twist angles
-    for (int i = 0; i < n_edges_dof_; ++i) {
-        q0_(3 * n_nodes_ + i) = twist_angles_[i];
+    if(twist_angles_.size() != 0) {
+        for (int i = 0; i < n_edges_dof_; ++i) {
+            q0_(3 * n_nodes_ + i) = twist_angles_[i];
+        }
     }
-
-
     // TODO: temporary until compute_tfc_midedge is implemented
     Eigen::VectorXi temp = Eigen::VectorXi::Zero(n_dof_); 
     // tau0_.resize(n_dof_, temp); // Initialize tau0_ with zeros
@@ -532,7 +535,7 @@ SoftRobot::compute_time_parallel(const std::vector<Eigen::Vector3d>& a1_old,
     std::vector<Eigen::Vector3d> tangent  = this->_compute_tangent(q);
 
     // Parallel transport a1_old from tangent0 to tangent
-    std::vector<Eigen::Vector3d> a1_transported = parallel_transport(a1_old, tangent0, tangent);
+    auto a1_transported = parallel_transport(a1_old, tangent0, tangent);
 
     size_t N = tangent.size();
     std::vector<Eigen::Vector3d> a1(N);
@@ -693,7 +696,7 @@ Eigen::VectorXi SoftRobot::_get_intermediate_edge_dof(const std::vector<int>& no
 }
 
 // Utility Helpers
-Eigen::VectorXi setdiff1d(const Eigen::VectorXi& a, const Eigen::VectorXi& b) {
+Eigen::VectorXi SoftRobot::setdiff1d(const Eigen::VectorXi& a, const Eigen::VectorXi& b) {
     std::unordered_set<int> b_set(b.data(), b.data() + b.size());
     std::vector<int> result;
     for (int i = 0; i < a.size(); ++i)
@@ -702,7 +705,7 @@ Eigen::VectorXi setdiff1d(const Eigen::VectorXi& a, const Eigen::VectorXi& b) {
     return Eigen::Map<Eigen::VectorXi>(result.data(), result.size());
 }
 
-Eigen::VectorXi union1d(const Eigen::VectorXi& a, const Eigen::VectorXi& b) {
+Eigen::VectorXi SoftRobot::union1d(const Eigen::VectorXi& a, const Eigen::VectorXi& b) {
     std::unordered_set<int> union_set(a.data(), a.data() + a.size());
     for (int i = 0; i < b.size(); ++i)
         union_set.insert(b(i));
@@ -817,30 +820,42 @@ Eigen::VectorXi SoftRobot::get_fixed_dof() const {
     return fixed_dof;
 }
 
-// std::shared_ptr<SoftRobot> SoftRobot::update(
-//     std::optional<Eigen::VectorXd> q,
-//     std::optional<Eigen::VectorXd> u,
-//     std::optional<Eigen::VectorXd> a,
-//     std::optional<Eigen::VectorXd> a1,
-//     std::optional<Eigen::VectorXd> a2,
-//     std::optional<Eigen::VectorXd> m1,
-//     std::optional<Eigen::VectorXd> m2,
-//     std::optional<Eigen::VectorXd> ref_twist,
-//     std::optional<Eigen::VectorXi> free_dof_
-// ) const {
-//     RobotState new_state = state_; // copy
+// main for testing
+int main() {
+    std::cout << "SoftRobot compiled successfully.\n";
 
-//     if (q) new_state.q = *q;
-//     if (u) new_state.u = *u;
-//     if (a) new_state.a = *a;
-//     if (a1) new_state.a1 = *a1;
-//     if (a2) new_state.a2 = *a2;
-//     if (m1) new_state.m1 = *m1;
-//     if (m2) new_state.m2 = *m2;
-//     if (ref_twist) new_state.ref_twist = *ref_twist;
-//     if (free_dof_) new_state.free_dof_ = *free_dof_;
+    Geometry geo("hex_parachute_n6.txt");
 
-//     return std::make_unique<SoftRobot>(new_state);
-// }
+    // GeomParams
+    GeomParams geom_params(0.001, 0.0, 0.0); // Example values, replace with your actual values
 
+    // Material
+    Material material(1200, 2e6, 0, 0.5, 0.5); // Example values, replace with your actual values
 
+    // SimParams
+    SimParams static_2d_sim(false, false, false, false, false, true, 1, 1e-2, 25, 1.0, 1, 1e-4, 1e-4, 1e-2); // Example values, replace with your actual values
+
+    // Environment
+    Environment env;
+    //env.add_force("gravity", Eigen::Vector3d(0.0, 0.0, -9.81)); // Assuming add_force takes Eigen::Vector3d
+
+    // RobotState
+    Eigen::VectorXd q0 = Eigen::VectorXd::Zero(10); // Example size, replace with your actual size
+    Eigen::VectorXd u = Eigen::VectorXd::Zero(10); // Example size, replace with your actual size
+    std::vector<Eigen::Vector3d> a; // Example, replace with your actual values
+    std::vector<Eigen::Vector3d> a1; // Example, replace with your actual values
+    std::vector<Eigen::Vector3d> m1; // Example, replace with your actual values
+    std::vector<Eigen::Vector3d> m2; // Example, replace with your actual values
+    std::vector<Eigen::Vector3d> a2; // Example, replace with your actual values
+    Eigen::VectorXi undef_ref_twist = Eigen::VectorXi::Zero(10); // Example size, replace with your actual size
+    Eigen::VectorXd tau0 = Eigen::VectorXd::Zero(10); // Example size, replace with your actual size
+    Eigen::VectorXi free_dof = Eigen::VectorXi::Zero(10); // Example size, replace with your actual size
+    RobotState state(q0, u, a, a1, a2, m1, m2, undef_ref_twist, tau0, free_dof); // Example values, replace with your actual values
+
+    // Create SoftRobot object
+    SoftRobot robot(geom_params, material, geo, static_2d_sim, env, state);
+
+    std::cout << "SoftRobot object created successfully.\n";
+
+    return 0;
+}

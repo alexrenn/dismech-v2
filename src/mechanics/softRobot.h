@@ -2,9 +2,10 @@
 #define SOFT_ROBOT_H
 
 #include "../eigenIncludes.h"
-#include "../mechanics/robotState.h"
-#include "../mechanics/environment.cpp"
-#include "../mechanics/geometry.h"
+#include "robotState.h"
+#include "environment.cpp"
+#include "geometry.h"
+#include "../frame_util.h"
 
 
 class SoftRobot {
@@ -14,18 +15,6 @@ class SoftRobot {
 
         void scale_mass_matrix(const std::vector<Eigen::Vector3d> & nodes, double scale); 
         void _init_curvature_midedge(const Geometry& geo);
-
-        // std::shared_ptr<SoftRobot> update(
-        //     std::optional<Eigen::VectorXd> q0 = std::nullopt,
-        //     std::optional<Eigen::VectorXd> u = std::nullopt,
-        //     std::optional<Eigen::VectorXd> a = std::nullopt,
-        //     std::optional<std::vector<Eigen::VectorXd>> a1 = std::nullopt,
-        //     std::optional<std::vector<Eigen::VectorXd>> a2 = std::nullopt,
-        //     std::optional<std::vector<Eigen::VectorXd>> m1 = std::nullopt,
-        //     std::optional<std::vector<Eigen::VectorXd>> m2 = std::nullopt,
-        //     std::optional<Eigen::VectorXd> ref_twist = std::nullopt,
-        //     std::optional<Eigen::VectorXi> free_dof = std::nullopt
-        // ) const;
 
         std::vector<Eigen::Vector3d> _compute_tangent(const Eigen::VectorXd& q);
         
@@ -154,7 +143,7 @@ class SoftRobot {
 
         // Helper functions
         void _init_geometry(const Geometry& geo);
-        void _init_stiffness(const GeomParams& geom, const Material& material);
+        // void _init_stiffness(const GeomParams& geom, const Material& material);
         void _init_state(const Geometry& geo);
         void _init_springs(const Geometry& geo);
         void _get_mass_matrix(const GeomParams& geom, const Material& material);
@@ -179,7 +168,7 @@ class SoftRobot {
                                                 const Eigen::VectorXd& q,
                                                 const Eigen::MatrixXd& a1,
                                                 const Eigen::VectorXd& ref_twist ); // TODO check */
-
+    
         
 
 };

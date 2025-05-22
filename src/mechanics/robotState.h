@@ -1,4 +1,7 @@
-#include <Eigen/Dense>
+#ifndef ROBOT_STATE_H
+#define ROBOT_STATE_H
+
+#include "../eigenIncludes.h"
 #include <vector>
 
 struct RobotState {
@@ -28,3 +31,5 @@ struct RobotState {
     //                    const Eigen::VectorXi& ref_twist,
     //                    const Eigen::VectorXd& free_dof);
 };
+
+#endif // ROBOT_STATE_H
