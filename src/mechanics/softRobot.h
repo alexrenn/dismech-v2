@@ -6,6 +6,7 @@
 #include "environment.cpp"
 #include "geometry.h"
 #include "../frame_util.h"
+#include "stiffness.h"
 
 
 class SoftRobot {
@@ -134,6 +135,12 @@ class SoftRobot {
         std::vector<double> face_area;
         Eigen::MatrixXd mass_matrix;
 
+        // Rod stiffness variables
+        double EA, EI1, EI2, GJ;
+
+        // Shell stiffness variables
+        std::vector<double> ks; // Stiffness for each shell face
+        double kb; // Bending stiffness for shell faces
         /*
         std::vector<BendTwistSpring> bend_twist_springs_;   // List of bend-twist springs
         std::vector<StretchSpring> stretch_springs_;         // List of stretch springs
@@ -143,7 +150,7 @@ class SoftRobot {
 
         // Helper functions
         void _init_geometry(const Geometry& geo);
-        // void _init_stiffness(const GeomParams& geom, const Material& material);
+        void _init_stiffness(const GeomParams& geom, const Material& material);
         void _init_state(const Geometry& geo);
         void _init_springs(const Geometry& geo);
         void _get_mass_matrix(const GeomParams& geom, const Material& material);

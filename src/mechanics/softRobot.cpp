@@ -7,7 +7,7 @@ SoftRobot::SoftRobot(const GeomParams& geom, const Material& material, const Geo
         : sim_params_(sim_params), env_(env), state_(state){
 
         _init_geometry(geo);
-        // this->_init_stiffness(geom, material);
+        _init_stiffness(geom, material);
         _init_state(geo);
         //this->_init_springs(geo);
         _get_mass_matrix(geom, material);
@@ -73,20 +73,27 @@ void SoftRobot::_init_geometry(const Geometry& geo)
     _get_voronoi_ref_len();
     _get_face_area();
  }
-/*
- // TOOD: rod sitffness
+
+// Rod Stiffness and Shell Stiffness Initialization
 void SoftRobot::_init_stiffness(const GeomParams& geom, const Material& material) {
-    RodStiffness rod = compute_rod_stiffness(geom, material);
+    RodStiffness rod = computeRodStiffness(geom, material);
     this->EA = rod.EA;
     this->EI1 = rod.EI1;
-    this->EI2 = rod.EI2;`
+    this->EI2 = rod.EI2;
     this->GJ = rod.GJ;
 
-    RodStiffness rod = compute_shell_stiffness(geom, material, ref_len, sim_params.use_mid_edge);
+    ShellStiffness shell = computeShellStiffness(geom, material, this->ref_len, this->sim_params_.use_mid_edge);
     this->ks = shell.ks;
     this->kb = shell.kb;
+
+    std::cout << "Rod Stiffness: EA = " << EA 
+              << ", EI1 = " << EI1 
+              << ", EI2 = " << EI2 
+              << ", GJ = " << GJ << std::endl;
+    std::cout << "Shell Stiffness: ks = " << ks.size()
+                << ", kb = " << kb << std::endl;
 }
-*/
+
 void SoftRobot::_init_state(const Geometry& geo) {
     // Initialize RobotState state for q0
     auto [a1, a2] = this->compute_space_parallel(); // TODO parallel_transport

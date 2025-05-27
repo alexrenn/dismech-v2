@@ -27,7 +27,7 @@ class ElasticEnergy {
             rows_ = create_rows(ind_);
             cols_ = create_cols(ind_);
             
-            if (get_strain_) {
+            if (get_strain_) { 
                 nat_strain_ = get_strain_(get_node_pos(initial_state_.q));
             }
         }

@@ -2,7 +2,7 @@
 #define GEOMETRY_H
 
 #include "../eigenIncludes.h"
-#include "params.cpp"
+#include "params.h"
 #include <vector>
 #include <string>
 

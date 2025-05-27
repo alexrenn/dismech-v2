@@ -97,7 +97,10 @@ void Geometry::calculate_shell_and_hinge_edges(int n_faces) {
         As_[i] = face_norm / 2;
         face_unit_norms_[i] = face_cross_prod / face_norm;
 
-        std::cout << "Face " << i << " area: " << As_[i] << ", normal: " << face_unit_norms_[i].transpose() << std::endl;
+        std::cout << std::setprecision(17);  // match Python's float precision
+        const auto& n = face_unit_norms_[i];
+        std::cout << "Face " << i << " area: " << As_[i]
+                << ", normal: [" << n(0) << "." << n(1) << "." << n(2) << ".]\n";
 
         // Iterate over edge pairs (permutations of edges)
         std::vector<std::array<int, 3>> permutations = {
