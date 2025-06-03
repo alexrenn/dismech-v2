@@ -1,129 +1,115 @@
-#include <Eigen/Dense>
-#include <Eigen/Sparse>
-#include <vector>
-#include <iostream>
-#include <memory>
-
+#include "elastic_energy.h"
 #include "softRobot.h"
-#include "robotState.h"
+#include "../eigenIncludes.h"
+#include <iostream>
 
-/*
-Guide for sparse matricies
-https://eigen.tuxfamily.org/dox/group__SparseQuickRefPage.html
-*/
-
-class ElasticEnergy {
-    public:
-        ElasticEnergy(const Eigen::MatrixXd& K,
-                      const Eigen::MatrixXi& nodes_ind,
-                      const Eigen::MatrixXi& ind,
-                      const RobotState& initial_state,
-                      std::function<Eigen::VectorXd(const Eigen::MatrixXd&)> get_strain = nullptr)
-            : K_(K), ind_(ind), initial_state_(initial_state), get_strain_(get_strain) {
+ElasticEnergy::ElasticEnergy(const Eigen::MatrixXd& K,
+                             const Eigen::MatrixXi& nodes_ind,
+                             const Eigen::MatrixXi& ind,
+                             const RobotState& initial_state,
+                             std::function<Eigen::MatrixXd(const Eigen::MatrixXd&)> get_strain)
+    : K_(K),
+      n_K_(K.cols() > 1 ? K.cols() : 1),
+      initial_state_(initial_state),
+      ind_(ind) {
     
-            n_K_ = K_.cols();
-            node_dof_ind_ = SoftRobot::map_node_to_dof(nodes_ind);
-            n_nodes_ = nodes_ind.cols();
-            rows_ = create_rows(ind_);
-            cols_ = create_cols(ind_);
-            
-            if (get_strain_) { 
-                nat_strain_ = get_strain_(get_node_pos(initial_state_.q));
+    node_dof_ind_ = SoftRobot::map_node_to_dof(nodes_ind);
+    n_nodes_ = nodes_ind.cols();
+
+    int stencil_n_dof = ind_.cols();
+    for (int i = 0; i < ind_.rows(); ++i) {
+        for (int j = 0; j < stencil_n_dof; ++j) {
+            for (int k = 0; k < stencil_n_dof; ++k) {
+                rows_.push_back(ind_(i, j));
+                cols_.push_back(ind_(i, k));
             }
         }
-    
-        virtual ~ElasticEnergy() = default;
-    
-        virtual void post_init() {
-            if (!nat_strain_.size()) {
-                nat_strain_ = get_strain_(initial_state_.q);
-            }
+    }
+
+    if (get_strain) {
+        Eigen::MatrixXd initial_pos = get_node_pos(initial_state.q);
+        nat_strain_ = get_strain(initial_pos);
+    }
+}
+
+Eigen::MatrixXd ElasticEnergy::get_node_pos(const Eigen::VectorXd& q) const {
+    Eigen::MatrixXd positions(n_nodes_, 3);
+    for (int i = 0; i < n_nodes_; ++i) {
+        for (int d = 0; d < 3; ++d) {
+            positions(i, d) = q[node_dof_ind_(3 * i + d)];
+        }
+    }
+    return positions;
+}
+
+double ElasticEnergy::get_energy_linear_elastic(const RobotState& state, bool output_scalar) const {
+    Eigen::MatrixXd strain = get_strain(state);
+    Eigen::MatrixXd del_strain = (strain - nat_strain_).reshaped(strain.rows(), n_K_);
+
+    if (output_scalar) {
+        return 0.5 * (K_.reshaped(strain.rows(), n_K_).array() * del_strain.array().square()).sum();
+    } else {
+        // Per-element energy would be returned here
+        return 0.0; // Adjust as needed
+    }
+}
+
+std::pair<Eigen::VectorXd, Eigen::SparseMatrix<double>> ElasticEnergy::grad_hess_energy_linear_elastic_sparse(const RobotState& state) const {
+    Eigen::MatrixXd strain = get_strain(state);
+    auto [grad_strain, hess_strain] = grad_hess_strain(state);
+
+    Eigen::MatrixXd del_strain = (strain - nat_strain_).reshaped(strain.rows(), n_K_);
+    Eigen::MatrixXd gradE_strain = K_.reshaped(del_strain.rows(), n_K_).array() * del_strain.array();
+
+    // TODO: Complete gradient and Hessian computation based on analytical expressions
+    Eigen::VectorXd grad(state.q.size());
+    grad.setZero();
+
+    for (int i = 0; i < ind_.rows(); ++i) {
+        for (int j = 0; j < ind_.cols(); ++j) {
+            grad[ind_(i, j)] -= gradE_strain(i, j % n_K_);
+        }
+    }
+
+    std::vector<Eigen::Triplet<double>> triplets;
+    for (int i = 0; i < rows_.size(); ++i) {
+        triplets.emplace_back(rows_[i], cols_[i], 0);  // Placeholder: Fill with computed -hess_energy
+    }
+
+    Eigen::SparseMatrix<double> hess(state.q.size(), state.q.size());
+    hess.setFromTriplets(triplets.begin(), triplets.end());
+    return {grad, hess};
+}
+
+void ElasticEnergy::fdm_check_grad_hess_strain(const RobotState& state,
+                                               Eigen::MatrixXd& grad_FDM,
+                                               Eigen::Tensor<double, 3>& hess_FDM,
+                                               bool& grad_match,
+                                               bool& hess_match) const {
+    constexpr double change = 1e-8;
+    Eigen::MatrixXd strain = get_strain(state);
+    auto [grad_strain, hess_strain] = grad_hess_strain(state);
+
+    grad_FDM = Eigen::MatrixXd::Zero(grad_strain.rows(), grad_strain.cols());
+    hess_FDM = Eigen::Tensor<double, 3>(hess_strain.dimension(0), hess_strain.dimension(1), hess_strain.dimension(2));
+    hess_FDM.setZero();
+
+    for (int i = 0; i < grad_strain.cols(); ++i) {
+        Eigen::VectorXd q_perturbed = state.q;
+        for (int j = 0; j < ind_.rows(); ++j) {
+            q_perturbed[ind_(j, i)] += change;
         }
 
-        // TODO: _get_node_pos
-        // TODO: set_nat_strain
-    
-        /*
-        After reshaping, K_ will be a matrix with rows representing individual stiffness coefficients
-        and columns corresponding to different degrees of freedom (DOF).*/
-        virtual Eigen::MatrixXd get_energy_linear_elastic(const RobotState& state, bool output_scalar = true) {
-            Eigen::VectorXd strain = get_strain_(state.q);
-            Eigen::VectorXd del_strain = (strain - nat_strain_).reshaped(-1, n_K_);
-            
-            if (output_scalar) {
-                return 0.5 * (K_.reshaped(-1, n_K_) * del_strain).squaredNorm(); //squaredNorm is equivalent to np.sum()
-            }
-            return 0.5 * (K_.reshaped(-1, n_K_) * del_strain).array().square();
-        }
+        RobotState perturbed_state = state;
+        perturbed_state.q = q_perturbed;
 
-         // Abstract method for getting strain (to be implemented by subclasses)
-        virtual Eigen::VectorXd getStrain(const RobotState& state) const = 0;
+        Eigen::MatrixXd perturbed_strain = get_strain(perturbed_state);
+        auto [perturbed_grad_strain, _] = grad_hess_strain(perturbed_state);
 
-        std::pair<Eigen::VectorXd, Eigen::SparseMatrix<double>> grad_hess_energy_linear_elastic(
-            const RobotState& state, bool sparse = false) {
-            
-            // Compute Gradidents and Hessians of Strain
-            Eigen::VectorXd strain = get_strain_(state.q);
-            Eigen::MatrixXd grad_strain, hess_strain;
-            std::tie(grad_strain, hess_strain) = grad_hess_strain(state);
-            
-            // Compute difference in strain
-            Eigen::VectorXd del_strain = (strain - nat_strain_).reshaped(-1, n_K_);
-            // Compute Graident of the energy
-            Eigen::VectorXd gradE_strain = (K_.reshaped(-1, n_K_) * del_strain).array();
-            
-            // Reshaping gradients and Hessians similarly to Python, to handle multiple strain constraints (bending, twisting, etc)
-            // Needs to match the expected dimensions of subsequent computations
-            gradE_strain = gradE_strain.reshaped(gradE_strain.size(), n_K_);
-            grad_strain = grad_strain.reshaped(grad_strain.size(), grad_strain.size(), n_K_);
-            hess_strain = hess_strain.reshaped(hess_strain.size(), grad_strain.size(), grad_strain.size(), n_K_);
-            
-            // Gradient and Hessian terms vectorized
-            Eigen::VectorXd grad_energy = gradE_strain.colwise().sum() * grad_strain;
-            Eigen::MatrixXd hess_term1 = gradE_strain.transpose()  * hess_strain; 
-            Eigen::MatrixXd outer = grad_strain.transpose() * grad_strain;
-            Eigen::MatrixXd hess_term2 = K_.reshaped(-1, n_K_) * outer;
-            
-            // Compute the total Hessian
-            Eigen::MatrixXd hess_energy = hess_term1 + hess_term2;
-            
-            // Compute forces and Hessians
-            Eigen::VectorXd Fs = Eigen::VectorXd::Zero(state.q.rows());
-            Fs += -grad_energy;
-            
-            Eigen::SparseMatrix<double> Js(state.q.rows(), state.q.rows());
-            if (sparse) {
-                Js.setZero();
-                // Implement sparse matrix construction
-            }
-            
-            return std::make_pair(Fs, Js);
-        }
-        
-        // TODO : fdm_check_grad_hess_strain
-    
-    protected:
-        Eigen::MatrixXd K_; // Stiffness matrix
-        Eigen::MatrixXi ind_; // Indices
-        Eigen::VectorXd nat_strain_; // Natural strain
-        Eigen::MatrixXi node_dof_ind_; // DOF indices for nodes
-        RobotState initial_state_; // Initial robot state
-        std::function<Eigen::VectorXd(const Eigen::MatrixXd&)> get_strain_; // Strain function
-        Eigen::VectorXi rows_; // Row indices for sparse matrix construction
-        Eigen::VectorXi cols_; // Column indices for sparse matrix construction
-        int n_K_;
-        int n_nodes_;
-    
-        Eigen::MatrixXd create_rows(const Eigen::MatrixXi& ind) {
-            // Implement logic to create row indices for sparse matrix
-        }
-    
-        Eigen::MatrixXd create_cols(const Eigen::MatrixXi& ind) {
-            // Implement logic to create column indices for sparse matrix
-        }
-    
-        Eigen::MatrixXd get_node_pos(const Eigen::MatrixXd& q) {
-            // Implement the logic to extract node positions
-        }
-    };
-    
+        grad_FDM.col(i) = (perturbed_strain - strain) / change;
+        hess_FDM.chip(i, 2) = (perturbed_grad_strain - grad_strain) / change;
+    }
+
+    grad_match = (grad_FDM - grad_strain).cwiseAbs().mean() < 1e-3 * grad_strain.cwiseAbs().mean();
+    hess_match = (hess_FDM - hess_strain).abs().mean() < 1e-3 * hess_strain.abs().mean();
+}
