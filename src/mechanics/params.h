@@ -2,6 +2,8 @@
 #define PARAMS_H
 
 #include <string>
+#include <iostream>
+using namespace std;
 #include "../eigenIncludes.h"
 
 
@@ -14,12 +16,12 @@ struct GeometryData {
 struct GeomParams {
     double rod_r0;
     double shell_h;
-    double axs;
+    double* axs = nullptr;
     double* jxs = nullptr;   // Optional, initialized to nullptr
     double* ixs1 = nullptr;  // Optional, initialized to nullptr
     double* ixs2 = nullptr;  // Optional, initialized to nullptr
 
-    GeomParams(double rod_r0, double shell_h, double axs, double* jxs = nullptr,
+    GeomParams(double rod_r0, double shell_h, double* axs = nullptr, double* jxs = nullptr,
                double* ixs1 = nullptr, double* ixs2 = nullptr)
         : rod_r0(rod_r0), shell_h(shell_h), axs(axs), jxs(jxs), ixs1(ixs1), ixs2(ixs2) {}
 };
@@ -35,6 +37,7 @@ struct Material {
              double poisson_rod, double poisson_shell)
         : density(density), youngs_rod(youngs_rod), youngs_shell(youngs_shell),
           poisson_rod(poisson_rod), poisson_shell(poisson_shell) {}
+    //std::cout << "\npoisson_shell INSIDE PARAMS: " << poisson_shell << std::endl;
 };
 
 struct SimParams {

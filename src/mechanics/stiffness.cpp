@@ -1,7 +1,7 @@
 #include "stiffness.h"
 
 RodStiffness computeRodStiffness(const GeomParams& geom, const Material& material) {
-    double EA = material.youngs_rod * (geom.axs != 0 ? geom.axs : M_PI * geom.rod_r0 * geom.rod_r0);
+    double EA = material.youngs_rod * (geom.axs != nullptr ? *geom.axs : (M_PI * geom.rod_r0 * geom.rod_r0));
     double EI1, EI2;
     if (geom.ixs1 && geom.ixs2) {
         EI1 = material.youngs_rod * (*geom.ixs1);

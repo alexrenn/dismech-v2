@@ -21,25 +21,14 @@ Geometry::Geometry(const std::string& fname)
     rod_shell_joint_edges_ = rod_shell_joint_edges;
     rod_edges_ = rod_edges;
 
-    std::cout << "Separated joint edges and rod edges.\n";
-    std::cout << "Rod-shell joint edges: " << rod_shell_joint_edges_.size() << " entries, each with 2 ints\n";
-    std::cout << "Rod edges: " << rod_edges_.size() << " entries, each with 2 ints\n";
-
     // General counting (for internal use, if needed)
     n_nodes = nodes_.size();
     n_rod_edges = rod_edges_.size();
     n_rod_shell_joints = rod_shell_joint_edges_.size();
     n_faces = face_nodes_.size();
 
-    std::cout << "Counts:\n";
-    std::cout << "  Nodes: " << n_nodes << "\n";
-    std::cout << "  Rod edges: " << n_rod_edges << "\n";
-    std::cout << "  Rod-shell joints: " << n_rod_shell_joints << "\n";
-    std::cout << "  Faces: " << n_faces << "\n";
-
-
     // Initialize shell-related arrays
-    n_edges = 3 * n_faces; 
+    n_edges = 3 * n_faces;  // Initial size for shell edges array
     shell_edges_.resize(n_edges, {0, 0}); // n_edges entries, each initialized to {0, 0}
     third_node_.resize(n_edges, -1);
     face_shell_edges_.resize(n_faces, std::array<int, 3>{-1, -1, -1}); // Initialize with -1
@@ -49,14 +38,6 @@ Geometry::Geometry(const std::string& fname)
     face_unit_norms_.resize(n_faces, Eigen::Vector3d::Zero());
     face_edges_.resize(n_faces, std::array<int, 3>{-1, -1, -1}); // Initialize with -1
     hinges_.resize(n_edges); // Resize hinges_ to the maximum possible size
-
-
-
-    std::cout << "Shell-related arrays initialized.\n";
-    std::cout << "  Total edges (expected 3 * n_faces): " << n_edges << "\n";
-    std::cout << "  third_node_ size: " << third_node_.size() << "\n";
-    std::cout << "  As_ size: " << As_.size() << "\n";
-    std::cout << "  face_unit_norms_ size: " << face_unit_norms_.size() << "\n";
 
     // Calculate shell and hinge edges
     calculate_shell_and_hinge_edges(n_faces);
@@ -69,12 +50,13 @@ Geometry::Geometry(const std::string& fname)
 
     // Sequence edges
     sequence_edges(n_faces, face_nodes_);
-
     create_stretch_springs();
-
     calculate_face_edges(face_nodes_);
-
+    calculate_bend_twist_springs(n_nodes);
     calculate_twist_angles();
+
+    // Debug print all
+    debug_print_all();
 }
 
 void Geometry::calculate_shell_and_hinge_edges(int n_faces) {
@@ -97,10 +79,10 @@ void Geometry::calculate_shell_and_hinge_edges(int n_faces) {
         As_[i] = face_norm / 2;
         face_unit_norms_[i] = face_cross_prod / face_norm;
 
-        std::cout << std::setprecision(17);  // match Python's float precision
-        const auto& n = face_unit_norms_[i];
-        std::cout << "Face " << i << " area: " << As_[i]
-                << ", normal: [" << n(0) << "." << n(1) << "." << n(2) << ".]\n";
+        // std::cout << std::setprecision(17);  // match Python's float precision
+        // const auto& n = face_unit_norms_[i];
+        // std::cout << "Face " << i << " area: " << As_[i]
+        //         << ", normal: [" << n(0) << "." << n(1) << "." << n(2) << ".]\n";
 
         // Iterate over edge pairs (permutations of edges)
         std::vector<std::array<int, 3>> permutations = {
@@ -115,8 +97,8 @@ void Geometry::calculate_shell_and_hinge_edges(int n_faces) {
             std::array<int, 2> edge = {n1_perm, n2_perm};
             std::array<int, 2> edge_neg = {n2_perm, n1_perm};
 
-            std::cout << "Checking edge: {" << edge[0] << ", " << edge[1] << "} (negative: {"
-            << edge_neg[0] << ", " << edge_neg[1] << "})" << std::endl;
+            // std::cout << "Checking edge: {" << edge[0] << ", " << edge[1] << "} (negative: {"
+            // << edge_neg[0] << ", " << edge_neg[1] << "})" << std::endl;
 
             // Check if edge already exists
             bool edge_exists = false;
@@ -136,7 +118,7 @@ void Geometry::calculate_shell_and_hinge_edges(int n_faces) {
 
             if (!edge_exists) {
                 // Free-standing edge
-                std::cout << "Edge {" << edge[0] << ", " << edge[1] << "} is new. Adding to shell_edges_." << std::endl;
+                // std::cout << "Edge {" << edge[0] << ", " << edge[1] << "} is new. Adding to shell_edges_." << std::endl;
                 shell_edges_[s_i_] = edge; 
                 third_node_[s_i_] = n3_perm;
                 face_shell_edges_[i][j] = s_i_;
@@ -146,7 +128,7 @@ void Geometry::calculate_shell_and_hinge_edges(int n_faces) {
                 ++s_i_;
             } else {
                 // Existing hinge edge
-                std::cout << "Edge {" << edge[0] << ", " << edge[1] << "} already exists at index " << exist_id << "." << std::endl;
+                // std::cout << "Edge {" << edge[0] << ", " << edge[1] << "} already exists at index " << exist_id << "." << std::endl;
                 std::array<int, 2> existing_edge = shell_edges_[exist_id];
                 int existing_n3 = third_node_[exist_id];
                 hinges_[h_i_] = {n1_perm, n2_perm, existing_n3, n3_perm};
@@ -179,19 +161,21 @@ void Geometry::calculate_ghost_edges(int n_rod_shell_joints, int n_faces) {
 
     // Ghost edges for rod-shell joint bent-twist springs
     ghost_rod_shell_joint_edges_.push_back({0, 0});
-    std::cout << "Initialized ghost_rod_shell_joint_edges_ with a dummy edge {0, 0}." << std::endl;
+    // std::cout << "Initialized ghost_rod_shell_joint_edges_ with a dummy edge {0, 0}." << std::endl;
 
+    // Clear and initialize rod_shell_joint_edges_total_ with original joint edges
+    rod_shell_joint_edges_total_ = rod_shell_joint_edges_;
 
     for (int i = 0; i < n_rod_shell_joints; ++i) {
         int s_node = rod_shell_joint_edges_[i][1];
         std::vector<int> s_faces;
-        std::cout << "Processing rod-shell joint " << i << " with s_node = " << s_node << std::endl;
+        // std::cout << "Processing rod-shell joint " << i << " with s_node = " << s_node << std::endl;
 
         // Find faces with s_node
         for (int j = 0; j < n_faces; ++j) {
             if (std::find(face_nodes_[j].begin(), face_nodes_[j].end(), s_node) != face_nodes_[j].end()) {
                 s_faces.push_back(j);
-                std::cout << "  Found face " << j << " containing s_node = " << s_node << std::endl;
+                // std::cout << "  Found face " << j << " containing s_node = " << s_node << std::endl;
             }
         }
 
@@ -199,33 +183,38 @@ void Geometry::calculate_ghost_edges(int n_rod_shell_joints, int n_faces) {
         std::vector<int> s_edges;
         for (int j = 0; j < s_faces.size(); ++j) {
             std::array<int, 3> temp_edges = face_shell_edges_[s_faces[j]];
-            std::cout << "  Processing face " << s_faces[j] << " with edges: {"
-                << temp_edges[0] << ", " << temp_edges[1] << ", " << temp_edges[2] << "}" << std::endl;
+            // std::cout << "  Processing face " << s_faces[j] << " with edges: {"
+                // << temp_edges[0] << ", " << temp_edges[1] << ", " << temp_edges[2] << "}" << std::endl;
             for (int k = 0; k < 3; ++k) {
                 std::array<int, 2> edge = shell_edges_[temp_edges[k]];
-                std::cout << "    Checking edge {" << edge[0] << ", " << edge[1] << "}" << std::endl;
+                // std::cout << "    Checking edge {" << edge[0] << ", " << edge[1] << "}" << std::endl;
                 if (std::find(ghost_rod_shell_joint_edges_.begin(), ghost_rod_shell_joint_edges_.end(), edge) == ghost_rod_shell_joint_edges_.end()) {
                     if (std::find(s_edges.begin(), s_edges.end(), temp_edges[k]) == s_edges.end()) {
                         s_edges.push_back(temp_edges[k]);
-                        std::cout << "      Added edge index " << temp_edges[k] << " to s_edges." << std::endl;
+                        // std::cout << "      Added edge index " << temp_edges[k] << " to s_edges." << std::endl;
                     }
                 }
             }
         }
 
-        // Add the new edges to the ghost edges list
+        // Add the new edges to both ghost edges and total edges lists
         for (int s : s_edges) {
-            ghost_rod_shell_joint_edges_.push_back(shell_edges_[s]);
-            std::cout << "  Added ghost edge {" << shell_edges_[s][0] << ", " << shell_edges_[s][1] << "} to ghost_rod_shell_joint_edges_." << std::endl;
+            std::array<int, 2> edge = shell_edges_[s];
+            ghost_rod_shell_joint_edges_.push_back(edge);
+            rod_shell_joint_edges_total_.push_back(edge);  // Add to total edges
+            // std::cout << "  Added ghost edge {" << edge[0] << ", " << edge[1] << "} to ghost_rod_shell_joint_edges_ and total edges." << std::endl;
         }
     }
-    std::cout << "Finished calculate_ghost_edges. Total ghost edges: " << ghost_rod_shell_joint_edges_.size() << std::endl;
+    std::cout << "Finished calculate_ghost_edges. Total ghost edges: " << ghost_rod_shell_joint_edges_.size() 
+              << ", Total joint edges: " << rod_shell_joint_edges_total_.size() << std::endl;
 }
 
 void Geometry::calculate_bend_twist_springs(int n_nodes) {
+    std::cout << "[TEST] Entering calculate_bend_twist_springs with n_nodes = " << n_nodes << std::endl;
+    std::cout << "  rod_edges_ size: " << rod_edges_.size() << ", rod_shell_joint_edges_ size: " << rod_shell_joint_edges_.size() << std::endl;
+    size_t before = bend_twist_springs_.size();
     // Remove jugaad and concatenate rod_shell_joint_edges_
     std::vector<std::array<int, 2>> rod_shell_joint_edges_total = rod_shell_joint_edges_;
-    // Appends a range of elements ([begin()+1, end())) from ghost_rod_shell_joint_edges_ into rod_shell_joint_edges_total.
     rod_shell_joint_edges_total.insert(
         rod_shell_joint_edges_total.end(), 
         ghost_rod_shell_joint_edges_.begin() + 1, 
@@ -284,7 +273,6 @@ void Geometry::calculate_bend_twist_springs(int n_nodes) {
             int n2 = spring_pair.sign1[1];
             int s1 = spring_pair.sign2[0];
             int s2 = spring_pair.sign2[1];
-            // Eigen::MatrixXd spring_nodes(spring_edges.size(), 3);
             for (const auto& edge_pair : spring_pair.spring_edges) {
                 int node1 = rod_edges_modified[edge_pair[0]][n1];
                 int node2 = i;
@@ -292,13 +280,12 @@ void Geometry::calculate_bend_twist_springs(int n_nodes) {
 
                 bend_twist_springs_.push_back({node1, edge_pair[0], node2, edge_pair[1], node3});
                 bend_twist_signs_.push_back({s1, s2});
-
             }    
         }
     }
+    std::cout << "[TEST] Exiting calculate_bend_twist_springs. bend_twist_springs_ size: " << bend_twist_springs_.size() << " (added " << (bend_twist_springs_.size() - before) << ")" << std::endl;
 }
 
-// TODO can make cleaner
 // Helper function to get combinations
 std::vector<std::array<int, 2>> Geometry::get_combinations(const std::vector<int>& vec) {
     std::vector<std::array<int, 2>> combinations;
@@ -322,36 +309,37 @@ std::vector<std::array<int, 2>> Geometry::get_combinations_outof_into(const std:
 }
 
 void Geometry::sequence_edges(int n_faces, std::vector<std::array<int, 3>>& face_nodes_) {
-    // Sequence edges by concatenating rod edges with rod shell joint edges
+    std::cout << "[TEST] Entering sequence_edges with n_faces = " << n_faces << ", face_nodes_ size: " << face_nodes_.size() << std::endl;
+    size_t before = edges_.size();
+    // Start with rod edges
     edges_ = rod_edges_;
+    
+    // Add rod-shell joint edges
     edges_.insert(edges_.end(), rod_shell_joint_edges_total_.begin(), rod_shell_joint_edges_total_.end());
 
-    // Only add unique shell_edges
-    if (!edges_.empty()) {
-        for (const auto& shell_edge : shell_edges_) {
-            bool exists = false;
-            for (const auto& edge : edges_) {
-                if (edge == shell_edge) {
-                    exists = true;
-                    break;
-                }
+    // Add unique shell edges
+    for (const auto& shell_edge : shell_edges_) {
+        bool exists = false;
+        for (const auto& edge : edges_) {
+            if (edge == shell_edge) {
+                exists = true;
+                break;
             }
-            if (!exists) {
-                edges_.push_back(shell_edge);
-            } else {
-                edges_ = shell_edges_;
-            }
-        } 
+        }
+        if (!exists) {
+            edges_.push_back(shell_edge);
+        }
     }
-    // Extract shell_edges_ slice from edges_
-    int n_rod_edges = static_cast<int>(rod_edges_.size());
-    int n_rod_shell_joints = static_cast<int>(rod_shell_joint_edges_total_.size());
-    int start_idx = n_rod_edges + n_rod_shell_joints;
-    shell_edges_.clear();
-    shell_edges_.insert(shell_edges_.end(), edges_.begin() + start_idx, edges_.end());
+
+    // Update total edge count
+    n_edges = edges_.size();
+    std::cout << "[TEST] Exiting sequence_edges. edges_ size: " << edges_.size() << " (added " << (edges_.size() - before) << ")" << std::endl;
 }
 
 void Geometry::create_stretch_springs() {
+    std::cout << "[TEST] Entering create_stretch_springs" << std::endl;
+    size_t before_rod = rod_stretch_springs_.size();
+    size_t before_shell = shell_stretch_springs_.size();
     // Clear and fill rod_stretch_springs_
     rod_stretch_springs_.clear();
     rod_stretch_springs_.insert(rod_stretch_springs_.end(), rod_edges_.begin(), rod_edges_.end());
@@ -359,9 +347,12 @@ void Geometry::create_stretch_springs() {
 
     // Copy shell_edges_ directly into shell_stretch_springs_
     shell_stretch_springs_ = shell_edges_;
+    std::cout << "[TEST] Exiting create_stretch_springs. rod_stretch_springs_ size: " << rod_stretch_springs_.size() << " (was " << before_rod << "), shell_stretch_springs_ size: " << shell_stretch_springs_.size() << " (was " << before_shell << ")" << std::endl;
 }
 
 void Geometry::calculate_face_edges(std::vector<std::array<int, 3>>& face_nodes_) {
+    std::cout << "[TEST] Entering calculate_face_edges. face_nodes_ size: " << face_nodes_.size() << std::endl;
+    size_t before = face_edges_.size();
     // Calculate face edges
     for (int i = 0; i < n_faces; ++i) {
         int n1 = face_nodes_[i][0];
@@ -380,7 +371,7 @@ void Geometry::calculate_face_edges(std::vector<std::array<int, 3>>& face_nodes_
             }
         }
     }
-    // Python TODO: make this mutable
+    std::cout << "[TEST] Exiting calculate_face_edges. face_edges_ size: " << face_edges_.size() << " (was " << before << ")" << std::endl;
 }
 
 int Geometry::find_edge_index(int n1, int n2) {
@@ -394,7 +385,9 @@ int Geometry::find_edge_index(int n1, int n2) {
 }
 
 void Geometry::calculate_twist_angles() {
-    // Placeholder method to handle twist angle calculation (if needed later)
+    std::cout << "[TEST] Entering calculate_twist_angles" << std::endl;
+    twist_angles_.assign(n_rod_edges + rod_shell_joint_edges_total_.size(), 0.0);
+    std::cout << "[TEST] Exiting calculate_twist_angles. twist_angles_ size: " << twist_angles_.size() << std::endl;
 }
 
 void Geometry::from_txt(const std::string& fname) {
@@ -510,10 +503,10 @@ std::pair<std::vector<std::array<int, 2>>, std::vector<std::array<int, 2>>>
 Geometry::separate_joint_edges(const std::vector<std::array<int, 3>>& triangles,
                      const std::vector<std::array<int, 2>>& edges) {
                         
-    cout << "all edges: " << std::endl;
-    for (const auto& edge : edges) {
-        cout << "Edge: " << edge[0] << ", " << edge[1] << std::endl;
-    }
+    // cout << "all edges: " << std::endl;
+    // for (const auto& edge : edges) {
+    //     cout << "Edge: " << edge[0] << ", " << edge[1] << std::endl;
+    // }
     // Return empty vectors if no edges
     if (edges.empty()) {
         return {{}, {}};
@@ -535,7 +528,7 @@ Geometry::separate_joint_edges(const std::vector<std::array<int, 3>>& triangles,
         bool n1_is_shell = shell_nodes.count(edge[1]);
 
         if (n0_is_shell || n1_is_shell) {
-            // It’s a joint edge — reverse if needed
+            // It's a joint edge — reverse if needed
             if (n0_is_shell && !n1_is_shell) {
                 rod_shell_joint_edges.push_back({edge[1], edge[0]}); // reversed
             } else {
@@ -549,10 +542,50 @@ Geometry::separate_joint_edges(const std::vector<std::array<int, 3>>& triangles,
     return std::make_pair(rod_shell_joint_edges, rod_edges);
 }
 
-// FOR TESTING
-// int main() {
-//     Geometry geom("hex_parachute_n6.txt");
-//     // Geometry geom("horizontal_rod_n21.txt");
-//     // Geometry geom("mesh.txt");
-//     return 0;
-// }
+// Debug method to print all private members and test private methods
+void Geometry::debug_print_all() {
+    std::cout << "\n--- Geometry Private Members ---\n";
+    std::cout << "nodes_ size: " << nodes_.size() << std::endl;
+    if (!nodes_.empty()) std::cout << "  First node: " << nodes_[0].transpose() << std::endl;
+    std::cout << "edges_ size: " << edges_.size() << std::endl;
+    std::cout << "rod_edges_ size: " << rod_edges_.size() << std::endl;
+    std::cout << "shell_edges_ size: " << shell_edges_.size() << std::endl;
+    std::cout << "rod_shell_joint_edges_ size: " << rod_shell_joint_edges_.size() << std::endl;
+    std::cout << "rod_shell_joint_edges_total_ size: " << rod_shell_joint_edges_total_.size() << std::endl;
+    std::cout << "face_nodes_ size: " << face_nodes_.size() << std::endl;
+    std::cout << "face_edges_ size: " << face_edges_.size() << std::endl;
+    std::cout << "face_shell_edges_ size: " << face_shell_edges_.size() << std::endl;
+    std::cout << "rod_stretch_springs_ size: " << rod_stretch_springs_.size() << std::endl;
+    std::cout << "shell_stretch_springs_ size: " << shell_stretch_springs_.size() << std::endl;
+    std::cout << "bend_twist_springs_ size: " << bend_twist_springs_.size() << std::endl;
+    std::cout << "bend_twist_signs_ size: " << bend_twist_signs_.size() << std::endl;
+    std::cout << "hinges_ size: " << hinges_.size() << std::endl;
+    std::cout << "sign_faces_ size: " << sign_faces_.size() << std::endl;
+    std::cout << "face_unit_norms_ size: " << face_unit_norms_.size() << std::endl;
+    std::cout << "As_ size: " << As_.size() << std::endl;
+    std::cout << "edge_faces_ size: " << edge_faces_.size() << std::endl;
+    std::cout << "third_node_ size: " << third_node_.size() << std::endl;
+    std::cout << "ghost_rod_shell_joint_edges_ size: " << ghost_rod_shell_joint_edges_.size() << std::endl;
+    std::cout << "n_nodes: " << n_nodes << ", n_rod_edges: " << n_rod_edges << ", n_rod_shell_joints: " << n_rod_shell_joints << ", n_faces: " << n_faces << ", n_edges: " << n_edges << std::endl;
+    std::cout << "s_i_: " << s_i_ << ", h_i_: " << h_i_ << std::endl;
+
+//     std::cout << "\n--- Geometry Private Methods (called with dummy/test values where possible) ---\n";
+//     // For methods that require arguments, call with dummy/test values if possible
+//     // Otherwise, just print their existence
+//     std::cout << "calculate_shell_and_hinge_edges: (not called, needs n_faces)\n";
+//     std::cout << "trim_unused_values: calling...\n";
+//     trim_unused_values();
+//     std::cout << "calculate_ghost_edges: (not called, needs n_rod_shell_joints, n_faces)\n";
+//     std::cout << "calculate_bend_twist_springs: (not called, needs n_nodes)\n";
+//     std::cout << "get_combinations: (not called, needs vector<int>)\n";
+//     std::cout << "get_combinations_outof_into: (not called, needs two vectors<int>)\n";
+//     std::cout << "sequence_edges: (not called, needs n_faces, face_nodes_)\n";
+//     std::cout << "create_stretch_springs: calling...\n";
+//     create_stretch_springs();
+//     std::cout << "calculate_face_edges: (not called, needs face_nodes_)\n";
+//     std::cout << "find_edge_index: (not called, needs n1, n2)\n";
+//     std::cout << "calculate_twist_angles: calling...\n";
+//     calculate_twist_angles();
+//     std::cout << "process_temp: (static, not called)\n";
+//     std::cout << "separate_joint_edges: (static, not called)\n";
+}

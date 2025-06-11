@@ -13,6 +13,7 @@ public:
     Geometry(const std::string& fname);
              
     void from_txt(const std::string& filename);
+    void debug_print_all();
 
 
     std::vector<Eigen::Vector3d> getNodes() const { return nodes_; }
