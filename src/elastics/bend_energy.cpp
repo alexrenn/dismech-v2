@@ -182,12 +182,9 @@ Eigen::MatrixXd BendEnergy::get_strain(const RobotState& state) const{
 // n0p, n1p, n2p = self._get_node_pos(state.q)
     Eigen::MatrixXd n0p(N, 3), n1p(N, 3), n2p(N, 3);
     for (int i = 0; i < N; ++i) {
-        int n0 = _node_dof_ind[3*i + 0];
-        int n1 = _node_dof_ind[3*i + 1];
-        int n2 = _node_dof_ind[3*i + 2];
-        n0p.row(i) = node_pos[0][n0];
-        n1p.row(i) = node_pos[0][n1];
-        n2p.row(i) = node_pos[0][n2];
+        n0p.row(i) = node_pos[0][i].transpose();
+        n1p.row(i) = node_pos[1][i].transpose();
+        n2p.row(i) = node_pos[2][i].transpose();
     }
     // 2. Get adjusted material directors
     auto [m1e, m2e, m1f, m2f] = _get_adjusted_material_directors(state.m1, state.m2);
@@ -219,10 +216,11 @@ Eigen::MatrixXd BendEnergy::get_strain(const RobotState& state) const{
     }
 
     Eigen::MatrixXd kb = (2.0 * cross_te_tf).array() * chi_inv.replicate(1, 3).array(); // Broadcast explicity with .replicate() and .array() to match shapes
-
-    std::cout << "kb.shape: " << kb.rows() << "x" << kb.cols() << "\n";
-    std::cout << "m2e.shape: " << m2e.rows() << "x" << m2e.cols() << "\n";
-    std::cout << "m2f.shape: " << m2f.rows() << "x" << m2f.cols() << "\n";
+    std::cout << "kb row 0: " << kb.row(0) << std::endl;
+    std::cout << "kb row 1: " << kb.row(1) << std::endl;
+    // std::cout << "kb.shape: " << kb.rows() << "x" << kb.cols() << "\n";
+    // std::cout << "m2e.shape: " << m2e.rows() << "x" << m2e.cols() << "\n";
+    // std::cout << "m2f.shape: " << m2f.rows() << "x" << m2f.cols() << "\n";
     // 5. Compute curvatures
     Eigen::VectorXd kappa1 = 0.5 * ((kb.array() * (m2e + m2f).array()).rowwise().sum());
     Eigen::VectorXd kappa2 = -0.5 * ((kb.array() * (m1e + m1f).array()).rowwise().sum());
@@ -421,6 +419,7 @@ BendEnergy::grad_hess_strain(const RobotState& state) const {
     Eigen::MatrixXd te = ee.array().colwise() / norm_e.array();
     Eigen::MatrixXd tf = ef.array().colwise() / norm_f.array();
     Eigen::VectorXd chi = (te.array() * tf.array()).rowwise().sum() + 1.0;
+    chi = chi.array().max(1e-8);  // avoid division by zero
     Eigen::VectorXd chi_inv = chi.cwiseInverse();
 
     // kb
