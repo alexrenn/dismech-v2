@@ -4,7 +4,7 @@
 #include <iostream>
 
 ElasticEnergy::ElasticEnergy(const Eigen::MatrixXd& K,
-                             const std::vector<std::array<int, 3>>& nodes_ind,
+                             const std::vector<std::vector<int>>& nodes_ind,
                              const std::vector<std::vector<int>>& ind,
                              const RobotState& initial_state,
                              std::function<Eigen::MatrixXd(const Eigen::MatrixXd&)> get_strain)
@@ -251,6 +251,8 @@ std::vector<std::vector<Eigen::Vector3d>> ElasticEnergy::get_node_positions(cons
     int N = _n_elems;
     int M = _n_nodes;
 
+    std::cout << "N: " << N << ", M: " << M << std::endl;
+
     std::vector<std::vector<Eigen::Vector3d>> positions(M, std::vector<Eigen::Vector3d>(N));
     int node_id = 0;
     for (int i = 0; i < N; ++i) {  // for each spring
@@ -261,6 +263,7 @@ std::vector<std::vector<Eigen::Vector3d>> ElasticEnergy::get_node_positions(cons
             std::cout << "Spring " << i << ": node_id = " << node_id << " pos = " << positions[m][i].transpose() << std::endl;
         }
     }
+    std::cout << "get node positions done" << std::endl;
     return positions;
 
     // std::vector<std::vector<Eigen::Vector3d>> positions(M, std::vector<Eigen::Vector3d>(N));

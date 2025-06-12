@@ -115,7 +115,9 @@ BendEnergy::BendEnergy(const std::vector<BendTwistSpring>& springs,
         // nodes_ind
         [&]() {
             std::vector<std::vector<int>> out;
-            for (const auto& s : springs) out.push_back(s.nodes_ind);
+            for (const auto& s : springs) {
+                out.push_back({s.nodes_ind[0], s.nodes_ind[1], s.nodes_ind[2]});
+            }
             return out;
         }(),
         // ind
