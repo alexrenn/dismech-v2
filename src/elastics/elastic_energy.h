@@ -14,7 +14,7 @@
 class ElasticEnergy {
 public:
     ElasticEnergy(const Eigen::MatrixXd& K,
-                  const std::vector<std::array<int, 3>>& nodes_ind,
+                  const std::vector<std::vector<int>>& nodes_ind,
                   const std::vector<std::vector<int>>& ind,
                   const RobotState& initial_state,
                   std::function<Eigen::MatrixXd(const Eigen::MatrixXd&)> get_strain = nullptr);
@@ -41,7 +41,7 @@ protected:
     int _n_nodes;
     int _n_elems;
 
-    std::vector<std::array<int, 3>> _nodes_ind;
+    std::vector<std::vector<int>> _nodes_ind;
     std::vector<int> _node_dof_ind;
     std::vector<std::vector<int>> _ind;
 

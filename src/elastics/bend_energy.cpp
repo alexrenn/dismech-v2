@@ -114,7 +114,7 @@ BendEnergy::BendEnergy(const std::vector<BendTwistSpring>& springs,
         }(),
         // nodes_ind
         [&]() {
-            std::vector<std::array<int, 3>> out;
+            std::vector<std::vector<int>> out;
             for (const auto& s : springs) out.push_back(s.nodes_ind);
             return out;
         }(),
@@ -395,41 +395,54 @@ std::tuple<
 
 std::pair<Eigen::MatrixXd, std::vector<Eigen::MatrixXd>>
 BendEnergy::grad_hess_strain(const RobotState& state) const {
-    const int N = static_cast<int>(_edges_ind.size());
 
     // Node positions
     auto node_pos = this->get_node_positions(state.q0);
-    int M = node_pos.size();
+
     Eigen::MatrixXd n0p(N, 3), n1p(N, 3), n2p(N, 3);
     for (int i = 0; i < N; ++i) {
-        int n0 = _node_dof_ind[3*i + 0];
-        int n1 = _node_dof_ind[3*i + 1];
-        int n2 = _node_dof_ind[3*i + 2];
-        n0p.row(i) = node_pos[0][n0];
-        n1p.row(i) = node_pos[0][n1];
-        n2p.row(i) = node_pos[0][n2];
+        n0p.row(i) = node_pos[0][i].transpose();
+        n1p.row(i) = node_pos[1][i].transpose();
+        n2p.row(i) = node_pos[2][i].transpose();
     }
 
     // Directors
     auto [m1e, m2e, m1f, m2f] = _get_adjusted_material_directors(state.m1, state.m2);
-
     // Geometry
-    Eigen::MatrixXd ee = n1p - n0p, ef = n2p - n1p;
-    Eigen::VectorXd norm_e = ee.rowwise().norm(), norm_f = ef.rowwise().norm();
+    Eigen::MatrixXd ee = n1p - n0p;
+    Eigen::MatrixXd ef = n2p - n1p;
+
+    Eigen::VectorXd norm_e = ee.rowwise().norm();
+    Eigen::VectorXd norm_f = ef.rowwise().norm();
+
     Eigen::MatrixXd te = ee.array().colwise() / norm_e.array();
     Eigen::MatrixXd tf = ef.array().colwise() / norm_f.array();
     Eigen::VectorXd chi = (te.array() * tf.array()).rowwise().sum() + 1.0;
     chi = chi.array().max(1e-8);  // avoid division by zero
     Eigen::VectorXd chi_inv = chi.cwiseInverse();
+    std::cout << "te: " << te.transpose() << std::endl;
+    std::cout << "tf: " << tf.transpose() << std::endl;
+    std::cout << "chi inv shape: " << chi_inv.rows() << " x " << chi_inv.cols() << std::endl;
+    std::cout << "chi inv: " << chi_inv.transpose() << std::endl;
+
 
     // kb
     Eigen::MatrixXd kb(N, 3);
     for (int i = 0; i < N; ++i)
         kb.row(i) = Eigen::Vector3d(te.row(i)).cross(Eigen::Vector3d(tf.row(i))) * 2.0 * chi_inv(i);
 
+    std::cout << "kb row 0: " << kb.row(0) << std::endl;
+    std::cout << "kb row 1: " << kb.row(1) << std::endl;
+
     Eigen::MatrixXd tilde_t = (te + tf).array().colwise() * chi_inv.array();
+    std::cout << "tilde_t row 0: " << tilde_t.row(0) << std::endl;
+    std::cout << "tilde_t row 1: " << tilde_t.row(1) << std::endl;
     Eigen::MatrixXd tilde_d1 = (m1e + m1f).array().colwise() * chi_inv.array();
+    std::cout << "tilde_d1 row 0: " << tilde_d1.row(0) << std::endl;
+    std::cout << "tilde_d1 row 1: " << tilde_d1.row(1) << std::endl;
     Eigen::MatrixXd tilde_d2 = (m2e + m2f).array().colwise() * chi_inv.array();
+    std::cout << "tilde_d2 row 0: " << tilde_d2.row(0) << std::endl;
+    std::cout << "tilde_d2 row 1: " << tilde_d2.row(1) << std::endl;
 
     Eigen::VectorXd kappa1 = 0.5 * ((kb.array() * (m2e + m2f).array()).rowwise().sum());
     Eigen::VectorXd kappa2 = -0.5 * ((kb.array() * (m1e + m1f).array()).rowwise().sum());
@@ -439,6 +452,12 @@ BendEnergy::grad_hess_strain(const RobotState& state) const {
     Eigen::MatrixXd Dkappa1Df = (-kappa1).asDiagonal() * tilde_t;
     Eigen::MatrixXd Dkappa2De = (-kappa2).asDiagonal() * tilde_t;
     Eigen::MatrixXd Dkappa2Df = (-kappa2).asDiagonal() * tilde_t;
+
+    std::cout << "Dkappa1De row 0: " << Dkappa1De.row(0) << std::endl;
+    std::cout << "Dkappa1Df row 0: " << Dkappa1Df.row(0) << std::endl;
+    std::cout << "Dkappa2De row 0: " << Dkappa2De.row(0) << std::endl;
+    std::cout << "Dkappa2Df row 0: " << Dkappa2Df.row(0) << std::endl;
+
     // Temporary storage for cross products
     Eigen::MatrixXd cross_te_tilde_d2(N, 3), cross_tf_tilde_d2(N, 3);
     Eigen::MatrixXd cross_te_tilde_d1(N, 3), cross_tf_tilde_d1(N, 3);
